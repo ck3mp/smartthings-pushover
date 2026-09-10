@@ -1,4 +1,4 @@
-"""Turn consecutive WasherState snapshots into human-readable events.
+"""Turn consecutive ApplianceState snapshots into human-readable events.
 
 Pure functions: no I/O, no threads, easy to unit test. The bridge feeds
 `detect()` every time the cache changes and forwards whatever comes back
@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from .washer import WasherState
+from .appliance import ApplianceState
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,7 @@ class CycleTracker:
     course: str | None = None
     initial_remaining_s: int | None = None
     course_names: dict[str, str] = field(default_factory=dict)
+    kind: str = "washer"                     # picks the wording of a few messages
 
     def course_label(self, code: str | None) -> str | None:
         if code is None:
@@ -49,7 +50,10 @@ def fmt_duration(seconds: int | float | None) -> str | None:
     return f"{m}m"
 
 
-def _settings_line(s: WasherState) -> str:
+_FINISHED_HEADLINE = {"washer": "Laundry is done", "dryer": "Laundry is dry"}
+
+
+def _settings_line(s: ApplianceState) -> str:
     bits = []
     if s.water_temp and s.water_temp != "None":
         bits.append(f"{s.water_temp}°" if s.water_temp.isdigit() else s.water_temp)
@@ -58,10 +62,14 @@ def _settings_line(s: WasherState) -> str:
     if s.rinse and s.rinse.isdigit():
         n = int(s.rinse)
         bits.append(f"{n} rinse" + ("s" if n != 1 else ""))
+    if s.dry_level and s.dry_level != "None":
+        bits.append(f"{s.dry_level.lower()} dry")
+    if s.dry_time_s:
+        bits.append(f"{fmt_duration(s.dry_time_s)} timed")
     return ", ".join(bits)
 
 
-def detect(prev: WasherState | None, cur: WasherState, tracker: CycleTracker,
+def detect(prev: ApplianceState | None, cur: ApplianceState, tracker: CycleTracker,
            name: str, now: float | None = None) -> list[Event]:
     """Compare two snapshots and return the events that happened between
     them. `prev is None` means this is the first snapshot after process
@@ -151,7 +159,7 @@ def _reset(tracker: CycleTracker) -> None:
     tracker.initial_remaining_s = None
 
 
-def _started_msg(s: WasherState, t: CycleTracker) -> str:
+def _started_msg(s: ApplianceState, t: CycleTracker) -> str:
     parts = ["Cycle started"]
     label = t.course_label(s.course)
     if label:
@@ -166,14 +174,14 @@ def _started_msg(s: WasherState, t: CycleTracker) -> str:
     return "\n".join(parts)
 
 
-def _resumed_msg(s: WasherState) -> str:
+def _resumed_msg(s: ApplianceState) -> str:
     msg = "Cycle resumed"
     if s.remaining_s:
         msg += f", about {fmt_duration(s.remaining_s)} remaining"
     return msg
 
 
-def _paused_msg(s: WasherState) -> str:
+def _paused_msg(s: ApplianceState) -> str:
     msg = "Cycle paused"
     if s.progress and s.progress != "None":
         msg += f" during {s.progress.lower()}"
@@ -182,9 +190,9 @@ def _paused_msg(s: WasherState) -> str:
     return msg
 
 
-def _finished_msg(s: WasherState, t: CycleTracker, now: float) -> str:
+def _finished_msg(s: ApplianceState, t: CycleTracker, now: float) -> str:
     label = t.course_label(t.course or s.course)
-    msg = "Laundry is done"
+    msg = _FINISHED_HEADLINE.get(t.kind, "Cycle finished")
     if label:
         msg += f": {label}"
     if t.started_at is not None:
@@ -194,7 +202,7 @@ def _finished_msg(s: WasherState, t: CycleTracker, now: float) -> str:
     return msg
 
 
-def _cancelled_msg(was: WasherState, t: CycleTracker, now: float) -> str:
+def _cancelled_msg(was: ApplianceState, t: CycleTracker, now: float) -> str:
     label = t.course_label(t.course or was.course)
     msg = "Cycle stopped before finishing"
     if label:
@@ -207,10 +215,11 @@ def _cancelled_msg(was: WasherState, t: CycleTracker, now: float) -> str:
 
 
 _PHASE_VERBS = {"Wash": "washing", "Rinse": "rinsing", "Spin": "spinning",
-                "Weightsensing": "weighing the load"}
+                "Weightsensing": "weighing the load",
+                "Drying": "drying", "Cooling": "cooling down"}
 
 
-def _phase_msg(s: WasherState) -> str:
+def _phase_msg(s: ApplianceState) -> str:
     verb = _PHASE_VERBS.get(s.progress or "")
     msg = f"Now {verb}" if verb else f"Phase: {s.progress}"
     if s.remaining_s:

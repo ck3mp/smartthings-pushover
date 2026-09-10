@@ -1,4 +1,4 @@
-from smartthings_pushover import washer
+from smartthings_pushover import appliance as washer
 
 # Trimmed from a real /device/0 read of a WW80CGC04DAEEU (DA_WM_TP1_21_COMMON).
 IDLE_LINKS = {
@@ -66,7 +66,7 @@ def test_flatten_running_and_active_hook():
 
 def test_flatten_tolerates_missing_and_garbage():
     s = washer.flatten({})
-    assert s == washer.WasherState()
+    assert s == washer.ApplianceState()
     s = washer.flatten({"/operational/state/vs/0": {
         "x.com.samsung.da.progressPercentage": "abc",
         "x.com.samsung.da.remainingTime": "soon"}})
@@ -94,11 +94,11 @@ def test_course_code_shapes():
 
 
 def test_poll_tiers_use_vendor_paths_only():
-    tiers = washer.poll_tiers()
+    tiers = washer.poll_tiers("washer")
     for t in tiers:
         for p in t.paths:
             assert p == washer.SEED_PATH or p[-2:] == ("vs", "0"), p
-    for p in washer.OBSERVE_PATHS:
+    for p in washer.observe_paths("washer"):
         assert p[-2:] == ("vs", "0"), p
 
 
@@ -133,3 +133,63 @@ def test_supported_course_codes_bad_shapes():
         {"/course/vs/0": {"x.com.samsung.da.supportedOptions": ["31C8410923FA6"]}}) == []
     assert washer.supported_course_codes(
         {"/course/vs/0": {"x.com.samsung.da.supportedOptions": ["0"]}}) == []
+
+
+# Trimmed from a real /device/0 read of a DV80CGC0B0AEEU (DA_WM_TP1_21_COMMON_DV5000C).
+DRYER_LINKS = {
+    "/power/vs/0": {"x.com.samsung.da.power": "Off"},
+    "/operational/state/vs/0": {
+        "x.com.samsung.da.state": "Ready",
+        "x.com.samsung.da.remainingTime": "03:10:00",
+        "x.com.samsung.da.progressPercentage": "1",
+        "x.com.samsung.da.progress": "None",
+        "x.com.samsung.da.delayEndTime": "00:00:00",
+        "x.com.samsung.da.supportedProgress": ["None", "Drying", "Cooling", "Finish"],
+    },
+    "/washer/vs/0": {
+        "x.com.samsung.da.wrinklePrevent": "Off",
+        "x.com.samsung.da.dryLevel": "Normal",
+        "x.com.samsung.da.dryTime": "00:00:00",
+        "x.com.samsung.da.dryerType": "Electricity",
+    },
+    "/st/dryercourse/vs/0": {
+        "x.com.samsung.da.st.dryerMode": "Table_03_Course_16",
+        "x.com.samsung.da.st.courseTable": "Table_03",
+    },
+    "/remotectrl/vs/0": {"x.com.samsung.da.remoteControlEnabled": "false"},
+    "/kidslock/vs/0": {"x.com.samsung.da.kidsLock": "Ready"},
+    "/alarms/vs/0": {},
+    "/wm/jobbeginingstatus/vs/0": {"x.com.samsung.da.currentStatus": "None"},
+    # The dryer reports instantaneous power only, no cumulativePower.
+    "/energy/consumption/vs/0": {"x.com.samsung.da.instantaneousPower": "-500"},
+    "/course/vs/0": {"x.com.samsung.da.supportedOptions": [
+        "216D20EE0001FD20EE00019D204E00020D102E0001AD102E0001DD204E0001BD204E00"
+        "01ED204E00043D204E00024D000E10E25D000E10E27D000E37E23D000E00018D20EE000"]},
+}
+
+
+def test_flatten_dryer():
+    s = washer.flatten(DRYER_LINKS)
+    assert s.course == "16"
+    assert s.dry_level == "Normal" and s.dry_time_s == 0
+    assert s.wrinkle_prevent is False
+    assert s.water_temp is None and s.spin is None and s.rinse is None
+    assert s.energy_wh is None
+    assert s.remaining_s == 3 * 3600 + 10 * 60
+    assert not s.in_cycle
+
+
+def test_dryer_course_codes():
+    assert washer.supported_course_codes(DRYER_LINKS) == [
+        "16", "1F", "19", "20", "1A", "1D", "1B", "1E", "43", "24", "25", "27",
+        "23", "18"]
+
+
+def test_paths_per_kind():
+    assert ("st", "dryercourse", "vs", "0") in washer.observe_paths("dryer")
+    assert ("st", "washercourse", "vs", "0") not in washer.observe_paths("dryer")
+    assert ("st", "washercourse", "vs", "0") in washer.warm_paths("washer")
+    for kind in washer.KINDS:
+        for tier in washer.poll_tiers(kind):
+            for path in tier.paths:
+                assert path[-2:] == ("vs", "0") or path == washer.SEED_PATH

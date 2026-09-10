@@ -14,11 +14,11 @@ services:
     container_name: smartthings-pushover
     restart: unless-stopped
 
-    # Host networking: the bridge speaks DTLS/UDP straight to the washer
-    # and binds a fixed local port (DTLS_LOCAL_PORT) so a restart
-    # re-handshakes from the same address and the washer drops its stale
-    # session instead of ignoring us for 5-15 min. Nothing is exposed
-    # inbound.
+    # Host networking: the bridge speaks DTLS/UDP straight to the
+    # appliances and binds a fixed local port per appliance
+    # (*_DTLS_LOCAL_PORT) so a restart re-handshakes from the same address
+    # and the appliance drops its stale session instead of ignoring us for
+    # 5-15 min. Nothing is exposed inbound.
     network_mode: host
 
     volumes:
@@ -26,10 +26,25 @@ services:
       - /volume1/docker/smartthings-pushover/certs:/config:ro
 
     environment:
-      # ---- Washer (required) ----------------------------------------
+      # ---- Appliances -----------------------------------------------
+      # Each appliance is on when its _IP is set; force with _ENABLED.
+      # At least one must be enabled. Only one client may talk to an
+      # appliance at a time, so never run two bridges against the same IP.
+      WASHER_ENABLED: ""              # blank = on if WASHER_IP set; "false" to skip
       WASHER_IP: "192.168.1.40"
       WASHER_PORT: ""                 # blank = auto-discover (WW80 uses 49154)
-      WASHER_NAME: "Washing machine"  # title of every notification
+      WASHER_NAME: "Washing machine"  # title of every washer notification
+      # Course code -> name. --dump lists every code the appliance knows:
+      #   docker compose run --rm smartthings-pushover python -m smartthings_pushover --dump washer
+      WASHER_COURSE_NAMES: "1C=Eco 40-60,1B=Cotton,25=Synthetics,20=Hygiene Steam,08=Rinse+Spin,74=Drum Clean,87=Downloaded,06=Bedding,7F=Wool/Delicates,65=Colours,8F=Intense Cold,96=Less Microfiber,34=Mixed Load,A0=Quick Wash 15'"
+      WASHER_DTLS_LOCAL_PORT: "49700" # fixed local UDP port; "random" to let the OS pick
+
+      DRYER_ENABLED: ""               # blank = on if DRYER_IP set; "false" to skip
+      DRYER_IP: "192.168.1.253"
+      DRYER_PORT: ""                  # blank = auto-discover (DV80 uses 49154)
+      DRYER_NAME: "Tumble dryer"
+      DRYER_COURSE_NAMES: "16=Cotton,18=Synthetics,1F=Mixed Load,19=Delicates,20=Iron Dry,1A=Wool,1D=Towels,1B=Bedding,1E=Outdoor,43=Downloaded,23=Quick Dry 35',27=Time Dry,25=Warm Air,24=Cool Air"
+      DRYER_DTLS_LOCAL_PORT: "49701"  # must differ from the washer's
 
       # ---- Pushover (required) --------------------------------------
       PUSHOVER_TOKEN: ""              # application API token
@@ -47,10 +62,7 @@ services:
       # phase_changed, alarm, power_on, power_off, remote_control,
       # child_lock, offline, online
       EVENTS: ""
-      # Course code -> name, e.g. "1C=Eco 40-60,1B=Cotton". Find codes with
-      #   docker compose run --rm smartthings-pushover python -m smartthings_pushover --dump
-      COURSE_NAMES: ""
-      STARTUP_NOTIFY: "true"         # message when the bridge first connects
+      STARTUP_NOTIFY: "true"         # one message per appliance when the bridge first connects
       OFFLINE_AFTER_S: "900"          # unreachable this long -> "offline" event
 
       # ---- Tuning (defaults are fine) -------------------------------------
@@ -61,4 +73,3 @@ services:
       HOT_POLL_S: "2"                 # state poll interval while idle
       HOT_POLL_ACTIVE_S: "1"          # state poll interval during a cycle
       PING_INTERVAL_S: "25"
-      DTLS_LOCAL_PORT: "49700"        # "random" to let the OS pick

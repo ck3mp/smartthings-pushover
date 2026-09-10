@@ -1,4 +1,4 @@
-"""One persistent DTLS session to the washer, kept alive and reconnected,
+"""One persistent DTLS session per appliance, kept alive and reconnected,
 feeding state changes through the event detector to Pushover.
 
 Session anatomy mirrors the SmartThings-Local reference bridge:
@@ -25,8 +25,8 @@ from smartthings_local.protocol.coap import fmt_code
 from smartthings_local.protocol.dtls_probe import probe_dtls_ports
 from smartthings_local.protocol.dtls_session import DtlsCoapSession
 
-from . import washer
-from .config import OCF_PORT_CANDIDATES, Config
+from . import appliance
+from .config import OCF_PORT_CANDIDATES, ApplianceConfig, Config
 from .events import CycleTracker, detect
 from .pushover import PushoverSender
 
@@ -38,13 +38,14 @@ WORKER_JOIN_TIMEOUT_S = 10.0
 MAX_BACKOFF_S = 30.0
 
 
-class WasherBridge:
+class ApplianceBridge:
 
-    def __init__(self, cfg: Config, sender: PushoverSender,
+    def __init__(self, app: ApplianceConfig, cfg: Config, sender: PushoverSender,
                  logger: logging.Logger | None = None):
+        self.app = app
         self.cfg = cfg
         self.sender = sender
-        self.log = logger or logging.getLogger("washer")
+        self.log = logger or logging.getLogger(app.kind)
         self.stop = threading.Event()
 
         self.auth = CertificateAuth.from_files(cfg.cert_path, cfg.key_path)
@@ -52,9 +53,9 @@ class WasherBridge:
         self.cache = StateCache(SimpleNamespace(on_observation=None))
         self.cache.set_on_change(self._on_cache_change)
 
-        self.tracker = CycleTracker(course_names=dict(cfg.course_names))
+        self.tracker = CycleTracker(course_names=dict(app.course_names), kind=app.kind)
         self._state_lock = threading.Lock()
-        self._last_state: washer.WasherState | None = None
+        self._last_state: appliance.ApplianceState | None = None
         self._seeded_once = False
 
         self.session: DtlsCoapSession | None = None
@@ -116,22 +117,22 @@ class WasherBridge:
     # port resolution
     # ------------------------------------------------------------------
     def _resolve_port(self) -> int:
-        if self.cfg.washer_port is not None:
-            return self.cfg.washer_port
+        if self.app.port is not None:
+            return self.app.port
         if self._discovered_port is not None:
-            res = probe_dtls_ports(self.cfg.washer_ip, (self._discovered_port,),
+            res = probe_dtls_ports(self.app.ip, (self._discovered_port,),
                                    timeout=2.0)
             if res.selected_port == self._discovered_port:
                 return self._discovered_port
             self.log.info("port %d no longer answers; re-probing",
                           self._discovered_port)
             self._discovered_port = None
-        res = probe_dtls_ports(self.cfg.washer_ip, OCF_PORT_CANDIDATES,
+        res = probe_dtls_ports(self.app.ip, OCF_PORT_CANDIDATES,
                                preferred_port=PREFERRED_PORT, timeout=3.0)
         if res.selected_port is None:
             raise ConnectionError(
-                f"no DTLS listener found on {self.cfg.washer_ip} "
-                f"(outcome={res.outcome}); is the washer on Wi-Fi?")
+                f"no DTLS listener found on {self.app.ip} "
+                f"(outcome={res.outcome}); is the {self.app.kind} on Wi-Fi?")
         self.log.info("discovered DTLS port %d", res.selected_port)
         self._discovered_port = res.selected_port
         return res.selected_port
@@ -142,10 +143,10 @@ class WasherBridge:
     def _session_once(self) -> None:
         port = self._resolve_port()
         sess = DtlsCoapSession(
-            self.cfg.washer_ip, port,
+            self.app.ip, port,
             auth=self.auth,
             on_observe_delivery=self._on_observe_delivery,
-            local_port=self.cfg.dtls_local_port,
+            local_port=self.app.dtls_local_port,
         )
         sess.connect()
         with self._session_lock:
@@ -154,10 +155,10 @@ class WasherBridge:
                 return
             self.session = sess
         self.connect_count += 1
-        self.log.info("DTLS connected to %s:%d", self.cfg.washer_ip, port)
+        self.log.info("DTLS connected to %s:%d", self.app.ip, port)
         sess.start_reader()
 
-        for path in washer.OBSERVE_PATHS:
+        for path in appliance.observe_paths(self.app.kind):
             sess.subscribe(list(path))
 
         self._seed(sess)
@@ -165,8 +166,9 @@ class WasherBridge:
 
         scheduler = PollScheduler(
             sess, self.cache,
-            tiers=washer.poll_tiers(self.cfg.hot_poll_s, self.cfg.hot_poll_active_s),
-            is_active_fn=washer.is_active,
+            tiers=appliance.poll_tiers(self.app.kind, self.cfg.hot_poll_s,
+                                       self.cfg.hot_poll_active_s),
+            is_active_fn=appliance.is_active,
             logger=self.log,
         )
         keepalive = KeepaliveTask(
@@ -178,7 +180,7 @@ class WasherBridge:
             liveness_fn=lambda: (time.monotonic() - scheduler.last_success_ts)
             < LIVENESS_WINDOW_S,
         )
-        refresh = ObserveRefreshTask(sess, paths=washer.OBSERVE_PATHS,
+        refresh = ObserveRefreshTask(sess, paths=appliance.observe_paths(self.app.kind),
                                      interval_s=OBSERVE_REFRESH_INTERVAL_S,
                                      logger=self.log)
         self._scheduler = scheduler
@@ -207,7 +209,7 @@ class WasherBridge:
             self._scheduler = None
 
     def _seed(self, sess: DtlsCoapSession) -> None:
-        code, payload = sess.get(list(washer.SEED_PATH), timeout=15.0)
+        code, payload = sess.get(list(appliance.SEED_PATH), timeout=15.0)
         if code != COAP_CONTENT:
             raise RuntimeError(f"/device/0 -> {fmt_code(code)}")
         body = cbor2.loads(payload)
@@ -221,7 +223,7 @@ class WasherBridge:
         desc = info.get("x.com.samsung.da.description")
         if serial and serial != self._serial:
             self._serial = serial
-            self.log.info("identified %s serial=%s", desc or "washer", serial)
+            self.log.info("identified %s serial=%s", desc or self.app.kind, serial)
         state = self.current_state()
         self.log.info("seeded %d resources; state=%s progress=%s remaining=%s",
                       len(links), state.machine_state, state.progress,
@@ -229,8 +231,9 @@ class WasherBridge:
         if not self._seeded_once:
             self._seeded_once = True
             if self.cfg.startup_notify:
-                self._notify("startup", self.cfg.washer_name,
-                             f"Bridge started. Washer is {state.machine_state or 'unknown'}.")
+                self._notify("startup", self.app.name,
+                             f"Bridge started. {self.app.name} is "
+                             f"{state.machine_state or 'unknown'}.")
 
     # ------------------------------------------------------------------
     # data path
@@ -252,8 +255,8 @@ class WasherBridge:
             return
         self._evaluate(source)
 
-    def current_state(self) -> washer.WasherState:
-        return washer.flatten(self.cache.snapshot())
+    def current_state(self) -> appliance.ApplianceState:
+        return appliance.flatten(self.cache.snapshot())
 
     def _evaluate(self, source: str) -> None:
         with self._state_lock:
@@ -261,7 +264,7 @@ class WasherBridge:
             prev = self._last_state
             if prev == cur:
                 return
-            events = detect(prev, cur, self.tracker, self.cfg.washer_name)
+            events = detect(prev, cur, self.tracker, self.app.name)
             self._last_state = cur
             if prev is not None and (prev.machine_state != cur.machine_state
                                      or prev.progress != cur.progress):
@@ -295,19 +298,19 @@ class WasherBridge:
     def _mark_reachable(self) -> None:
         if self._down_since is not None:
             outage = time.time() - self._down_since
-            self.log.info("washer reachable again after %.0fs", outage)
+            self.log.info("%s reachable again after %.0fs", self.app.kind, outage)
         self._down_since = None
         if self._offline_notified:
             self._offline_notified = False
             if "online" in self.cfg.events:
-                self._notify("online", self.cfg.washer_name,
-                             "Washer is reachable again")
+                self._notify("online", self.app.name,
+                             f"{self.app.name} is reachable again")
 
     def _on_unreachable(self, sess: DtlsCoapSession) -> None:
         # Keepalive says the session is half-open: no 2.05 in the liveness
         # window and/or ping sends failing. Tear it down so the outer loop
         # reconnects instead of sitting on a dead socket.
-        self.log.warning("washer unreachable on current session; reconnecting")
+        self.log.warning("%s unreachable on current session; reconnecting", self.app.kind)
         try:
             sess.close()
         except Exception:  # noqa: BLE001
@@ -322,8 +325,8 @@ class WasherBridge:
                     and now - self._down_since >= self.cfg.offline_after_s):
                 self._offline_notified = True
                 if "offline" in self.cfg.events:
-                    self._notify("offline", self.cfg.washer_name,
-                                 f"Washer unreachable for "
+                    self._notify("offline", self.app.name,
+                                 f"{self.app.name} unreachable for "
                                  f"{int(self.cfg.offline_after_s // 60)} minutes")
             tick += 15.0
             if tick >= interval:

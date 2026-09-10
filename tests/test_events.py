@@ -1,5 +1,5 @@
 from smartthings_pushover.events import CycleTracker, detect, fmt_duration
-from smartthings_pushover.washer import WasherState
+from smartthings_pushover.appliance import ApplianceState as WasherState
 
 NAME = "Washer"
 
@@ -166,3 +166,37 @@ def test_fmt_duration():
     assert fmt_duration(60) == "1m"
     assert fmt_duration(3600) == "1h"
     assert fmt_duration(3600 + 5 * 60) == "1h 05m"
+
+
+def test_dryer_wording():
+    t = CycleTracker(course_names={"16": "Cotton"}, kind="dryer")
+    idle = st(course="16", water_temp=None, spin=None, rinse=None,
+              dry_level="Normal", dry_time_s=0, remaining_s=7200)
+    running = st(course="16", machine_state="Run", progress="Drying",
+                 water_temp=None, spin=None, rinse=None, dry_level="Normal",
+                 dry_time_s=0, remaining_s=7200)
+    detect(None, idle, t, "Dryer", now=0)
+    evs = detect(idle, running, t, "Dryer", now=0)
+    assert kinds(evs) == ["cycle_started"]
+    assert "Cotton" in evs[0].message and "normal dry" in evs[0].message
+    cooling = st(course="16", machine_state="Run", progress="Cooling",
+                 water_temp=None, spin=None, rinse=None, remaining_s=300)
+    evs = detect(running, cooling, t, "Dryer", now=100)
+    assert kinds(evs) == ["phase_changed"] and "cooling down" in evs[0].message
+    done = st(course="16", machine_state="End", progress="Finish",
+              water_temp=None, spin=None, rinse=None, remaining_s=0)
+    evs = detect(cooling, done, t, "Dryer", now=7300)
+    assert kinds(evs) == ["cycle_finished"]
+    assert evs[0].message.startswith("Laundry is dry: Cotton")
+
+
+def test_timed_dry_settings_line():
+    t = CycleTracker(kind="dryer")
+    idle = st(course="27", water_temp=None, spin=None, rinse=None,
+              dry_level="None", dry_time_s=5400)
+    running = st(course="27", machine_state="Run", progress="Drying",
+                 water_temp=None, spin=None, rinse=None, dry_level="None",
+                 dry_time_s=5400)
+    detect(None, idle, t, "Dryer", now=0)
+    evs = detect(idle, running, t, "Dryer", now=0)
+    assert "1h 30m timed" in evs[0].message and "dry," not in evs[0].message
