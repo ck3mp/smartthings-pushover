@@ -237,7 +237,7 @@ def test_finish_after_reconnect_without_seen_start():
         st(machine_state="End", progress="Finish", remaining_s=0), t, NAME,
     )
     assert kinds(evs) == ["cycle_finished"]
-    assert f(evs[0])["Cycle Length"] == "about 1h"
+    assert f(evs[0])["Cycle Length"] == "About 1h"
     assert "Duration" not in f(evs[0])
 
 
@@ -269,7 +269,7 @@ def test_alarm_raised_then_cleared():
     assert evs[0].title == "Washer: Error"
     assert evs[0].fields == (
         ("Status", "Error"), ("Code", "4C"),
-        ("Meaning", "water supply problem: check the tap and inlet hose"))
+        ("Meaning", "Water supply problem: check the tap and inlet hose"))
     assert evs[0].dedupe_key == "4C"
     assert detect(st(alarms=alarm), st(), t, NAME) == []
 
@@ -281,7 +281,7 @@ def test_alarm_real_door_open_shape():
                        "triggeredTime=2026-09-10T12:40:48, state=Created}"),)
     evs = detect(st(), st(alarms=alarm), t, NAME)
     assert evs[0].fields == (
-        ("Status", "Error"), ("Code", "DC"), ("Meaning", "door open or not latched"),
+        ("Status", "Error"), ("Code", "DC"), ("Meaning", "Door open or not latched"),
         ("Raised", "12:40:48 UTC"))
     assert evs[0].dedupe_key == "DC"
 
@@ -290,7 +290,7 @@ def test_alarm_real_door_open_shape():
 def test_power_and_toggles():
     t = CycleTracker()
     evs = detect(st(power="Off"), st(power="On"), t, NAME)
-    assert kinds(evs) == ["power_on"] and evs[0].message == "Status: Powered on"
+    assert kinds(evs) == ["power_on"] and evs[0].message == "Status: Powered On"
     assert kinds(detect(st(power="On"), st(power="Off"), t, NAME)) == ["power_off"]
     evs = detect(st(), st(remote_control=True), t, NAME)
     assert kinds(evs) == ["remote_control"] and evs[0].message == "Remote Control: Enabled"
@@ -362,7 +362,7 @@ def test_delay_end_scheduled_then_started():
     evs = detect(armed, waiting, t, NAME, now=0.0)
     assert kinds(evs) == ["cycle_scheduled"]
     assert evs[0].fields == (
-        ("Status", "Delayed start armed"), ("Programme", "Eco 40-60"),
+        ("Status", "Delayed Start Armed"), ("Programme", "Eco 40-60"),
         ("Temperature", "40°"), ("Spin", "1400 rpm"), ("Rinses", "2"), ("Finishes In", "4h"))
     assert t.scheduled and t.started_at is None
     later = st(machine_state="Run", progress="None", remaining_s=3 * 3600, delay_end_s=3 * 3600)
@@ -383,7 +383,7 @@ def test_delay_end_cancelled():
     detect(st(), waiting, t, NAME, now=0.0)
     evs = detect(waiting, st(), t, NAME, now=60.0)
     assert kinds(evs) == ["cycle_cancelled"]
-    assert evs[0].fields == (("Status", "Delayed start cancelled"), ("Programme", "Course 1C"))
+    assert evs[0].fields == (("Status", "Delayed Start Cancelled"), ("Programme", "Course 1C"))
     assert not t.scheduled
 
 

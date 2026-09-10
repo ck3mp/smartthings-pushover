@@ -390,7 +390,7 @@ it alone.
   phase, and both `remainingTime` and `delayEndTime` equal to the time
   until the cycle *ends*, so the actual start time is not knowable. The
   bridge sends `cycle_scheduled` then, `cycle_started` when a real phase
-  begins, and "Delayed start cancelled" if it is stopped first. Opening
+  begins, and "Delayed Start Cancelled" if it is stopped first. Opening
   and closing the door during the wait is silent.
 - **Door open at Start.** The washer reports Ready → Pause plus a `DC`
   alarm; closing the door goes Pause → Run. The bridge treats that as the

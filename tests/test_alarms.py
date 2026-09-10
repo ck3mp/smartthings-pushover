@@ -17,7 +17,7 @@ def test_real_shape_with_errorcode_prefix():
     assert alarm_fields(REAL_DOOR_ALARM) == (
         ("Status", "Error"),
         ("Code", "DC"),
-        ("Meaning", "door open or not latched"),
+        ("Meaning", "Door open or not latched"),
         ("Raised", "12:40:48 UTC"),
     )
 
@@ -32,7 +32,7 @@ def test_unknown_code_and_no_code():
     assert alarm_fields((("items", "{code=ZZ9}"),)) == (
         ("Status", "Error"),
         ("Code", "ZZ9"),
-        ("Meaning", "not in the code table; check the panel"),
+        ("Meaning", "Not in the code table; check the panel"),
     )
     assert alarm_fields((("count", "1"),)) == (("Status", "Error"), ("Details", "count: 1"))
 

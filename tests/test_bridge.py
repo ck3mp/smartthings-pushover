@@ -181,7 +181,7 @@ def test_startup_event_once_when_enabled():
     bridge, sender, _ = make_bridge(dict(IDLE_LINKS), cfg)
     bridge.seed(FakeSession(IDLE_LINKS))
     bridge.seed(FakeSession(IDLE_LINKS))
-    assert [plain(m) for m in sender.submitted] == ["Status: Bridge started\nAppliance State: Ready"]
+    assert [plain(m) for m in sender.submitted] == ["Status: Bridge Started\nAppliance State: Ready"]
 
 
 # ---- dispatch --------------------------------------------------------------
@@ -194,7 +194,7 @@ def test_alarm_is_forwarded_once_with_alarm_priority():
     deliver(bridge, "/alarms/vs/0", alarm)  # flaps back within the window
     assert len(sender.submitted) == 1
     assert sender.submitted[0]["priority"] == 1
-    assert "Code: 5C\nMeaning: drain problem" in plain(sender.submitted[0])
+    assert "Code: 5C\nMeaning: Drain problem" in plain(sender.submitted[0])
 
 
 def test_alarm_reraised_with_new_timestamp_is_one_push():
@@ -213,7 +213,7 @@ def test_alarm_reraised_with_new_timestamp_is_one_push():
     deliver(bridge, "/alarms/vs/0", {})
     deliver(bridge, "/alarms/vs/0", alarm("2026-09-10T12:40:49"))
     assert len(sender.submitted) == 1
-    assert "Code: DC\nMeaning: door open" in plain(sender.submitted[0])
+    assert "Code: DC\nMeaning: Door open" in plain(sender.submitted[0])
 
 
 def test_stale_sweep_does_not_flap_state():

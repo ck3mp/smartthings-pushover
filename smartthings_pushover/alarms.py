@@ -103,7 +103,8 @@ def alarm_fields(alarms: Iterable[tuple[str, str]]) -> tuple[tuple[str, str], ..
     codes = codes_in(pairs)
     for code in codes:
         out.append(("Code", code))
-        out.append(("Meaning", ALARM_CODES.get(code, "not in the code table; check the panel")))
+        meaning = ALARM_CODES.get(code, "not in the code table; check the panel")
+        out.append(("Meaning", meaning[0].upper() + meaning[1:]))
     for _key, value in pairs:
         m = _TRIGGERED_RE.search(value)
         if m:

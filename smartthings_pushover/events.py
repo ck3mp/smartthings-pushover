@@ -173,9 +173,9 @@ def detect(
     # ---- power ---------------------------------------------------------
     if was.power != is_.power and is_.power is not None and was.power is not None:
         if is_.power == "On":
-            events.append(Event("power_on", name, fields(("Status", "Powered on"))))
+            events.append(Event("power_on", name, fields(("Status", "Powered On"))))
         elif is_.power == "Off":
-            events.append(Event("power_off", name, fields(("Status", "Powered off"))))
+            events.append(Event("power_off", name, fields(("Status", "Powered Off"))))
 
     # ---- cycle transitions -------------------------------------------
     started_now = False
@@ -310,7 +310,7 @@ def _scheduled(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
     # The WW80 reports remainingTime == delayEndTime while waiting, so the
     # cycle length (and hence the start time) is not knowable.
     return fields(
-        ("Status", "Delayed start armed"),
+        ("Status", "Delayed Start Armed"),
         ("Programme", t.course_label(s.course)),
         *_settings(s),
         ("Finishes In", fmt_duration(s.delay_end_s) if s.delay_end_s else None),
@@ -343,7 +343,7 @@ def _finished(
     elif t.started_at is not None:
         duration = fmt_duration(now - t.started_at)
     elif t.initial_remaining_s:
-        length = f"about {fmt_duration(t.initial_remaining_s)}"
+        length = f"About {fmt_duration(t.initial_remaining_s)}"
     return fields(
         ("Status", "Complete"),
         ("Programme", t.course_label(t.course or s.course)),
@@ -355,7 +355,7 @@ def _finished(
 
 def _cancelled(was: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
     return fields(
-        ("Status", "Delayed start cancelled" if t.scheduled else "Cancelled"),
+        ("Status", "Delayed Start Cancelled" if t.scheduled else "Cancelled"),
         ("Programme", t.course_label(t.course or was.course)),
         ("Phase", None if t.scheduled else _phase_label(was, t)),
         (

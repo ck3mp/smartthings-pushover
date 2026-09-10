@@ -41,7 +41,7 @@ WASHER = KindSpec(
     course_key="x.com.samsung.da.st.washerMode",
     phase_labels=MappingProxyType(
         {
-            "Weightsensing": "Weighing load",
+            "Weightsensing": "Weighing Load",
             "Wash": "Washing",
             "Rinse": "Rinsing",
             "Spin": "Spinning",
