@@ -1,0 +1,233 @@
+"""Resource map for Samsung washers on the DA_WM_TP1_21 / TP2_20 firmware
+family (WW5000C / WW80CGC04DAEEU verified; the dryer descriptor in
+SmartThings-Local uses the same paths).
+
+Only the Samsung `/<x>/vs/0` siblings push OBSERVE notifications. The
+OCF-standard `/<x>/0` paths accept a registration and never fire, so
+everything here reads from the vendor paths.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+from smartthings_local.ocf.poll_scheduler import PollTier
+
+STATE_PATH = ("operational", "state", "vs", "0")
+SEED_PATH = ("device", "0")
+
+OBSERVE_PATHS: tuple[tuple[str, ...], ...] = (
+    STATE_PATH,                              # state, progress, remainingTime
+    ("power", "vs", "0"),
+    ("kidslock", "vs", "0"),
+    ("remotectrl", "vs", "0"),
+    ("alarms", "vs", "0"),
+    ("st", "washercourse", "vs", "0"),       # selected course
+    ("washer", "vs", "0"),                   # temp / spin / rinse
+    ("wm", "jobbeginingstatus", "vs", "0"),
+    ("energy", "consumption", "vs", "0"),
+)
+
+WARM_PATHS: tuple[tuple[str, ...], ...] = (
+    ("power", "vs", "0"),
+    ("kidslock", "vs", "0"),
+    ("remotectrl", "vs", "0"),
+    ("alarms", "vs", "0"),
+    ("st", "washercourse", "vs", "0"),
+    ("washer", "vs", "0"),
+    ("wm", "jobbeginingstatus", "vs", "0"),
+)
+
+# Samsung `x.com.samsung.da.state` values seen on laundry firmware.
+RUNNING_STATES = frozenset({"Run", "Running"})
+PAUSED_STATES = frozenset({"Pause", "Paused"})
+FINISHED_STATES = frozenset({"End", "Finish", "Finished", "Complete"})
+IDLE_STATES = frozenset({"Ready", "Idle", "None", "Off"})
+
+
+def poll_tiers(hot_s: float = 2.0, hot_active_s: float = 1.0) -> list[PollTier]:
+    """Hot/warm/sweep tiers. OBSERVE pushes are the accelerator; when the
+    washer has no internet its notify dispatch goes quiet and these polls
+    alone carry the events, so the hot tier must be tight enough that a
+    cycle end is noticed within a second or two."""
+    return [
+        PollTier(
+            name="hot",
+            interval_s=hot_s,
+            active_interval_s=hot_active_s,
+            timeout_s=2.0,
+            paths=(STATE_PATH,),
+        ),
+        PollTier(
+            name="warm",
+            interval_s=15.0,
+            timeout_s=4.0,
+            paths=WARM_PATHS,
+        ),
+        PollTier(
+            name="sweep",
+            interval_s=300.0,
+            timeout_s=15.0,
+            paths=(SEED_PATH,),
+            is_sweep=True,
+        ),
+    ]
+
+
+def _s(v: Any) -> str | None:
+    if v is None:
+        return None
+    return str(v)
+
+
+def _to_bool(v: Any) -> bool | None:
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() in ("true", "1", "on", "yes")
+
+
+def parse_hms(s: str | None) -> int | None:
+    """'02:36:00' -> 9360 seconds. None on anything unparseable."""
+    if not isinstance(s, str):
+        return None
+    parts = s.split(":")
+    if len(parts) != 3:
+        return None
+    try:
+        h, m, sec = (int(p) for p in parts)
+    except ValueError:
+        return None
+    return h * 3600 + m * 60 + sec
+
+
+_COURSE_RE = re.compile(r"(?:^|_)Course_([0-9A-Fa-f]+)$")
+
+
+def course_code(mode: str | None) -> str | None:
+    """'Table_02_Course_1C' -> '1C'. Returns the input verbatim if the
+    string isn't in that shape (so unknown formats are still visible)."""
+    if not isinstance(mode, str) or not mode:
+        return None
+    m = _COURSE_RE.search(mode)
+    if m:
+        return m.group(1).upper()
+    return mode
+
+
+@dataclass(frozen=True)
+class WasherState:
+    """Flattened, comparable snapshot of what we care about."""
+    power: str | None = None                 # 'On' / 'Off'
+    machine_state: str | None = None         # 'Ready' / 'Run' / 'Pause' / 'End'
+    progress: str | None = None              # 'None' / 'Wash' / 'Rinse' / 'Spin' / 'Finish'
+    progress_pct: int | None = None
+    remaining_s: int | None = None
+    delay_end_s: int | None = None
+    course: str | None = None                # hex code, e.g. '1C'
+    water_temp: str | None = None
+    spin: str | None = None
+    rinse: str | None = None
+    remote_control: bool | None = None
+    child_lock: bool | None = None
+    alarms: tuple[tuple[str, str], ...] = ()  # sorted (key, value) pairs
+    job_begin_status: str | None = None
+    energy_wh: int | None = None
+
+    @property
+    def running(self) -> bool:
+        return self.machine_state in RUNNING_STATES
+
+    @property
+    def paused(self) -> bool:
+        return self.machine_state in PAUSED_STATES
+
+    @property
+    def finished(self) -> bool:
+        return self.machine_state in FINISHED_STATES or self.progress == "Finish"
+
+    @property
+    def in_cycle(self) -> bool:
+        return self.running or self.paused
+
+    def remaining_hms(self) -> str | None:
+        if self.remaining_s is None:
+            return None
+        h, rest = divmod(self.remaining_s, 3600)
+        m, s = divmod(rest, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _flatten_alarms(rep: Mapping[str, Any] | None) -> tuple[tuple[str, str], ...]:
+    """The rep is `{}` when nothing is wrong. Its populated shape isn't
+    documented, so keep every scalar/list field as a sorted string pair
+    for display and change detection."""
+    if not isinstance(rep, Mapping) or not rep:
+        return ()
+    out = []
+    for k, v in rep.items():
+        key = str(k).replace("x.com.samsung.da.", "")
+        out.append((key, _compact(v)))
+    return tuple(sorted(out))
+
+
+def _compact(v: Any) -> str:
+    if isinstance(v, (list, tuple)):
+        return ", ".join(_compact(x) for x in v)
+    if isinstance(v, Mapping):
+        return "{" + ", ".join(
+            f"{str(k).replace('x.com.samsung.da.', '')}={_compact(x)}"
+            for k, x in v.items()) + "}"
+    return str(v)
+
+
+def flatten(links: Mapping[str, Mapping[str, Any]]) -> WasherState:
+    """links: href -> rep dict (the StateCache snapshot)."""
+    def g(href: str, key: str) -> Any:
+        rep = links.get(href) or {}
+        return rep.get(key)
+
+    pct_raw = g("/operational/state/vs/0", "x.com.samsung.da.progressPercentage")
+    try:
+        pct = int(pct_raw) if pct_raw is not None else None
+    except (TypeError, ValueError):
+        pct = None
+
+    wh_raw = g("/energy/consumption/vs/0", "x.com.samsung.da.cumulativePower")
+    try:
+        wh = int(float(wh_raw)) if wh_raw is not None else None
+    except (TypeError, ValueError):
+        wh = None
+
+    return WasherState(
+        power=_s(g("/power/vs/0", "x.com.samsung.da.power")),
+        machine_state=_s(g("/operational/state/vs/0", "x.com.samsung.da.state")),
+        progress=_s(g("/operational/state/vs/0", "x.com.samsung.da.progress")),
+        progress_pct=pct,
+        remaining_s=parse_hms(g("/operational/state/vs/0",
+                                "x.com.samsung.da.remainingTime")),
+        delay_end_s=parse_hms(g("/operational/state/vs/0",
+                                "x.com.samsung.da.delayEndTime")),
+        course=course_code(g("/st/washercourse/vs/0",
+                             "x.com.samsung.da.st.washerMode")),
+        water_temp=_s(g("/washer/vs/0", "x.com.samsung.da.waterTemperature")),
+        spin=_s(g("/washer/vs/0", "x.com.samsung.da.spinLevel")),
+        rinse=_s(g("/washer/vs/0", "x.com.samsung.da.rinseCycles")),
+        remote_control=_to_bool(g("/remotectrl/vs/0",
+                                  "x.com.samsung.da.remoteControlEnabled")),
+        # Samsung reports 'Ready' when the lock is off; anything else is on.
+        child_lock=(None if g("/kidslock/vs/0", "x.com.samsung.da.kidsLock") is None
+                    else g("/kidslock/vs/0", "x.com.samsung.da.kidsLock") != "Ready"),
+        alarms=_flatten_alarms(links.get("/alarms/vs/0")),
+        job_begin_status=_s(g("/wm/jobbeginingstatus/vs/0",
+                              "x.com.samsung.da.currentStatus")),
+        energy_wh=wh,
+    )
+
+
+def is_active(links: Mapping[str, Mapping[str, Any]]) -> bool:
+    """PollScheduler hook: tighten the hot tier while a cycle runs."""
+    rep = links.get("/operational/state/vs/0") or {}
+    return rep.get("x.com.samsung.da.state") in RUNNING_STATES

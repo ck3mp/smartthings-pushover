@@ -1,0 +1,16 @@
+# Secrets — never commit certs, keys, or env files with tokens
+certs/
+*.pem
+*.key
+*.csr
+*.srl
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/

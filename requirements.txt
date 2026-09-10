@@ -1,0 +1,7 @@
+# The DTLS/CoAP transport + polling layer. 0.1.16 is the first release
+# with the ObserveDelivery callback and the concurrent port probe.
+smartthings-local>=0.1.16,<0.2
+cbor2>=5.6
+# 23.x added set_ciphertext_mtu, which the DTLS handshake needs so the
+# client cert fits in one datagram (TizenRT drops the second fragment).
+pyOpenSSL>=23.1

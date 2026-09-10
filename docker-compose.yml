@@ -1,0 +1,64 @@
+# NAS deployment: pulls the published image, no build step.
+#
+#   docker login ghcr.io -u ck3mp      # once; PAT with read:packages (private repo)
+#   docker compose pull && docker compose up -d
+#   docker compose logs -f
+#
+# Fill in the environment block below (or leave a value blank to use the
+# default shown in the comment). Mount the directory holding
+# client_fullchain.pem + client.key from SmartThings-Local's setup_cert.py.
+
+services:
+  smartthings-pushover:
+    image: ghcr.io/ck3mp/smartthings-pushover:latest
+    container_name: smartthings-pushover
+    restart: unless-stopped
+
+    # Host networking: the bridge speaks DTLS/UDP straight to the washer
+    # and binds a fixed local port (DTLS_LOCAL_PORT) so a restart
+    # re-handshakes from the same address and the washer drops its stale
+    # session instead of ignoring us for 5-15 min. Nothing is exposed
+    # inbound.
+    network_mode: host
+
+    volumes:
+      # <-- change the left side to where the certs live on your NAS
+      - /volume1/docker/smartthings-pushover/certs:/config:ro
+
+    environment:
+      # ---- Washer (required) ----------------------------------------
+      WASHER_IP: "192.168.1.40"
+      WASHER_PORT: ""                 # blank = auto-discover (WW80 uses 49154)
+      WASHER_NAME: "Washing machine"  # title of every notification
+
+      # ---- Pushover (required) --------------------------------------
+      PUSHOVER_TOKEN: ""              # application API token
+      PUSHOVER_USER: ""               # user or group key
+      PUSHOVER_DEVICE: ""             # optional: deliver to one device only
+      PUSHOVER_SOUND: ""              # optional: default sound name
+      PUSHOVER_PRIORITY: "0"          # -2 .. 1
+      PUSHOVER_FINISHED_SOUND: ""     # optional: sound just for "laundry is done"
+      PUSHOVER_ALARM_PRIORITY: "1"    # priority for alarm/error messages
+
+      # ---- Events -------------------------------------------------------
+      # Comma-separated, or "all". Blank = cycle_started,cycle_finished,
+      # cycle_paused,cycle_cancelled,alarm. Available: cycle_started,
+      # cycle_finished, cycle_paused, cycle_resumed, cycle_cancelled,
+      # phase_changed, alarm, power_on, power_off, remote_control,
+      # child_lock, offline, online
+      EVENTS: ""
+      # Course code -> name, e.g. "1C=Eco 40-60,1B=Cotton". Find codes with
+      #   docker compose run --rm smartthings-pushover python -m smartthings_pushover --dump
+      COURSE_NAMES: ""
+      STARTUP_NOTIFY: "true"         # message when the bridge first connects
+      OFFLINE_AFTER_S: "900"          # unreachable this long -> "offline" event
+
+      # ---- Tuning (defaults are fine) -------------------------------------
+      CERT_PATH: "/config/client_fullchain.pem"
+      KEY_PATH: "/config/client.key"
+      LOG_LEVEL: "INFO"               # DEBUG shows every OBSERVE push and poll
+      HEALTH_INTERVAL_S: "300"        # health log line cadence
+      HOT_POLL_S: "2"                 # state poll interval while idle
+      HOT_POLL_ACTIVE_S: "1"          # state poll interval during a cycle
+      PING_INTERVAL_S: "25"
+      DTLS_LOCAL_PORT: "49700"        # "random" to let the OS pick

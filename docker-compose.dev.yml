@@ -1,0 +1,16 @@
+services:
+  smartthings-pushover:
+    build: .
+    image: smartthings-pushover:latest
+    container_name: smartthings-pushover
+    restart: unless-stopped
+    # The bridge binds a fixed local UDP port (DTLS_LOCAL_PORT, 49700) so a
+    # crash-restart re-handshakes from the same 5-tuple and the washer
+    # evicts its orphaned session instead of wedging for 5-15 min. Host
+    # networking keeps that port stable through Docker's NAT.
+    network_mode: host
+    volumes:
+      # Directory containing client_fullchain.pem + client.key
+      - ${WASHER_CERT_DIR:-./certs}:/config:ro
+    env_file:
+      - .env
