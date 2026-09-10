@@ -1,5 +1,10 @@
 # smartthings-pushover
 
+> Built with the assistance of [Claude Fable 5.1](https://www.anthropic.com/claude/fable),
+> Anthropic's AI model, working in Claude Code. Claude carried out the code
+> review, wrote the fixes, tests, packaging and documentation, and ran the
+> live tests against the appliances alongside the author.
+
 Pushover notifications from a Samsung washing machine and/or tumble dryer,
 straight off your LAN. A small Docker container talks to the appliance over
 its local OCF endpoint (CoAP over DTLS) and tells your phone when a cycle
@@ -410,3 +415,8 @@ Protocol work, certificate tooling and the DTLS/CoAP stack are from
 [QuiteYellow/SmartThings-Local](https://github.com/QuiteYellow/SmartThings-Local)
 (MIT). This project adds the appliance resource map, the event detector
 and the Pushover forwarder.
+
+Development was a collaboration between the author and Claude Fable 5.1
+(Anthropic), which reviewed the codebase, implemented the fixes and
+features, wrote the test suite and this README, and drove the live
+verification against both machines.
