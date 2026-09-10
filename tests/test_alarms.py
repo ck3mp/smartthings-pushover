@@ -1,3 +1,5 @@
+from datetime import UTC, timedelta, timezone
+
 from smartthings_pushover.alarms import AlarmThrottle, alarm_fields, codes_in, throttle_key
 
 REAL_DOOR_ALARM = (
@@ -14,12 +16,14 @@ def test_codes_in_extracts_and_dedupes():
 
 def test_real_shape_with_errorcode_prefix():
     assert codes_in(REAL_DOOR_ALARM) == ["DC"]
-    assert alarm_fields(REAL_DOOR_ALARM) == (
+    assert alarm_fields(REAL_DOOR_ALARM, UTC) == (
         ("Status", "Error"),
         ("Code", "DC"),
         ("Meaning", "Door open or not latched"),
-        ("Raised", "12:40:48 UTC"),
+        ("Raised", "12:40"),
     )
+    # The appliance stamps UTC; Raised is shown in the configured zone.
+    assert dict(alarm_fields(REAL_DOOR_ALARM, timezone(timedelta(hours=1))))["Raised"] == "13:40"
 
 
 def test_throttle_key_ignores_volatile_fields():

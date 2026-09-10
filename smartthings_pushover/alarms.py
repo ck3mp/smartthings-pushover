@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from collections import deque
 from collections.abc import Iterable
+from datetime import UTC, datetime, tzinfo
 
 # Front-panel error codes shared by Samsung washer / dryer firmware.
 # Manual wording, lightly shortened. Keys are upper-case.
@@ -94,10 +95,13 @@ def throttle_key(alarms: Iterable[tuple[str, str]]) -> str:
 _TRIGGERED_RE = re.compile(r"\btriggeredTime=(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})")
 
 
-def alarm_fields(alarms: Iterable[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
+def alarm_fields(
+    alarms: Iterable[tuple[str, str]], tz: tzinfo | None = None
+) -> tuple[tuple[str, str], ...]:
     """Notification fields for an alarm: Status, then Code / Meaning per
-    recognised code, the raise time if present, and the raw fields only
-    when no code could be decoded (so nothing is hidden)."""
+    recognised code, the raise time (converted from the appliance's UTC
+    stamp to `tz`, or process local time) if present, and the raw fields
+    only when no code could be decoded (so nothing is hidden)."""
     pairs = tuple(alarms)
     out: list[tuple[str, str]] = [("Status", "Error")]
     codes = codes_in(pairs)
@@ -108,7 +112,9 @@ def alarm_fields(alarms: Iterable[tuple[str, str]]) -> tuple[tuple[str, str], ..
     for _key, value in pairs:
         m = _TRIGGERED_RE.search(value)
         if m:
-            out.append(("Raised", f"{m.group(2)} UTC"))  # the appliance stamps UTC
+            stamp = datetime.strptime(f"{m.group(1)}T{m.group(2)}", "%Y-%m-%dT%H:%M:%S")
+            local = stamp.replace(tzinfo=UTC).astimezone(tz)
+            out.append(("Raised", local.strftime("%H:%M")))
             break
     if not codes:
         out.append(("Details", "; ".join(f"{k}: {v}" for k, v in pairs) or "none"))

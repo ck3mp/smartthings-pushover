@@ -180,7 +180,7 @@ client is already talking to it). At least one must be enabled.
 | `QUIET_PRIORITY` | -1      | The cap applied during quiet hours                          |
 | `ALARM_REPEAT_S` | 600     | Same alarm re-sent at most once per window; max 3 alarms per window; `0` disables |
 | `OFFLINE_AFTER_S` | 900    | Seconds unreachable before an `offline` event (minimum 60)  |
-| `TZ`             | UTC     | Time zone for `QUIET_HOURS` and log timestamps              |
+| `TZ`             | UTC     | Time zone for Estimated Finish and Raised times, `QUIET_HOURS`, and log timestamps |
 | `LOG_LEVEL`      | INFO    | DEBUG, INFO, WARNING or ERROR                               |
 | `CERT_PATH` / `KEY_PATH` | /config/client_fullchain.pem, /config/client.key | Cert location inside the container |
 | `STATE_DIR`      | /data (image) | Where cycle trackers persist; blank disables            |
@@ -196,11 +196,13 @@ client is already talking to it). At least one must be enabled.
 
 Every notification is titled with the appliance's name and consists of
 `Label: value` lines, labels in bold. Fields that don't apply are omitted.
-For example, a washer phase change:
+Durations read like `1h 12m`; clock times are `HH:MM`, 24-hour, in the
+container's `TZ`. For example, a washer phase change:
 
 ```
 Status: Spinning
 Time Remaining: 14m
+Estimated Finish: 14:43
 Percentage Complete: 31%
 ```
 
@@ -213,18 +215,19 @@ Temperature: 40°
 Spin: 1400 rpm
 Rinses: 2
 Time Remaining: 2h 36m
+Estimated Finish: 16:47
 ```
 
 | Event             | Fires when                                                   | Fields |
 |-------------------|--------------------------------------------------------------|--------|
-| `cycle_scheduled` | Start pressed with Delay End armed                           | Status, Programme, settings, Finishes In |
-| `cycle_started`   | The drum starts (or the Delay End wait elapses)              | Status, Programme, Temperature / Spin / Rinses (washer) or Dry Level / Dry Time (dryer), Time Remaining |
+| `cycle_scheduled` | Start pressed with Delay End armed                           | Status, Programme, settings, Finishes In, Estimated Finish |
+| `cycle_started`   | The drum starts (or the Delay End wait elapses)              | Status, Programme, Temperature / Spin / Rinses (washer) or Dry Level / Dry Time (dryer), Time Remaining, Estimated Finish |
 | `cycle_finished`  | The cycle completes                                          | Status: Complete, Programme, Duration (or Cycle Length if the start wasn't seen) |
-| `cycle_paused`    | Paused mid-cycle                                             | Status, Phase, Time Remaining |
-| `cycle_resumed`   | Resumed after a pause                                        | Status, Phase, Time Remaining |
+| `cycle_paused`    | Paused mid-cycle                                             | Status, Phase, Time Remaining (no finish estimate while paused) |
+| `cycle_resumed`   | Resumed after a pause                                        | Status, Phase, Time Remaining, Estimated Finish |
 | `cycle_cancelled` | Stopped or powered off before finishing (also a cancelled Delay End) | Status, Programme, Phase, Time Remaining |
-| `phase_changed`   | Wash → Rinse → Spin (washer), Drying → Cooling (dryer)        | Status, Time Remaining, Percentage Complete |
-| `alarm`           | The appliance raises an error                                | Status: Error, Code, Meaning (4C water supply, 5C drain, DC door, …), Raised; raw Details when the code is unknown |
+| `phase_changed`   | Wash → Rinse → Spin (washer), Drying → Cooling (dryer)        | Status, Time Remaining, Estimated Finish, Percentage Complete |
+| `alarm`           | The appliance raises an error                                | Status: Error, Code, Meaning (4C water supply, 5C drain, DC door, …), Raised (local time); raw Details when the code is unknown |
 | `power_on` / `power_off` | Panel power toggled                                   | Status |
 | `remote_control`  | Remote-control (SmartThings) toggle on the panel changed      | Remote Control: Enabled / Disabled |
 | `child_lock`      | Child lock changed                                           | Child Lock: On / Off |

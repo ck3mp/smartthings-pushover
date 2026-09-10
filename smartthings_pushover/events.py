@@ -15,6 +15,7 @@ import html as _html
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime, tzinfo
 from typing import Any
 
 from . import alarms
@@ -125,6 +126,16 @@ def fmt_duration(seconds: int | float | None) -> str | None:
     return "under 1m" if seconds else "0m"
 
 
+def fmt_clock(epoch: float, tz: tzinfo | None = None) -> str:
+    """Wall-clock HH:MM (24 h) in `tz`, or the process time zone (the TZ
+    environment variable inside the container) when `tz` is None."""
+    return datetime.fromtimestamp(epoch, tz).strftime("%H:%M")
+
+
+def _eta(s: ApplianceState, now: float, tz: tzinfo | None) -> str | None:
+    return fmt_clock(now + s.remaining_s, tz) if s.remaining_s else None
+
+
 def _baseline(cur: ApplianceState, tracker: CycleTracker) -> None:
     """First snapshot after process start. Keep a persisted tracker only
     if it plausibly describes the cycle that is running right now."""
@@ -157,11 +168,13 @@ def detect(
     name: str,
     now: float | None = None,
     outage_s: float | None = None,
+    tz: tzinfo | None = None,
 ) -> list[Event]:
     """Compare two snapshots and return the events that happened between
     them. `prev is None` means this is the first snapshot after process
     start: establish a baseline and emit nothing. `outage_s` is how long
-    the bridge was disconnected between the two snapshots, if it was."""
+    the bridge was disconnected between the two snapshots, if it was.
+    `tz` is the zone for clock times (None = process local time)."""
     now = time.time() if now is None else now
     if prev is None:
         _baseline(cur, tracker)
@@ -184,19 +197,19 @@ def detect(
             if not tracker.scheduled:
                 tracker._begin(is_, None)
                 tracker.scheduled = True
-                events.append(Event("cycle_scheduled", name, _scheduled(is_, tracker)))
+                events.append(Event("cycle_scheduled", name, _scheduled(is_, tracker, now, tz)))
             # else: door closed again during the wait; still just waiting.
         elif was.paused and tracker.active and not tracker.scheduled:
-            events.append(Event("cycle_resumed", name, _resumed(is_, tracker)))
+            events.append(Event("cycle_resumed", name, _resumed(is_, tracker, now, tz)))
         else:
             tracker._begin(is_, now)
             started_now = True
-            events.append(Event("cycle_started", name, _started(is_, tracker)))
+            events.append(Event("cycle_started", name, _started(is_, tracker, now, tz)))
     elif was.running and is_.running and tracker.scheduled and not is_.delay_waiting:
         # The Delay End wait is over and the drum has started.
         tracker._begin(is_, now)
         started_now = True
-        events.append(Event("cycle_started", name, _started(is_, tracker)))
+        events.append(Event("cycle_started", name, _started(is_, tracker, now, tz)))
     elif was.running and is_.paused:
         if not tracker.scheduled:  # a pause during the Delay End wait is just the door
             events.append(Event("cycle_paused", name, _paused(is_, tracker)))
@@ -240,7 +253,7 @@ def detect(
         and not is_.finished
         and not was.finished
     ):
-        events.append(Event("phase_changed", name, _phase(is_, tracker)))
+        events.append(Event("phase_changed", name, _phase(is_, tracker, now, tz)))
 
     # ---- alarms -------------------------------------------------------
     if was.alarms != is_.alarms and is_.alarms:
@@ -248,7 +261,7 @@ def detect(
             Event(
                 "alarm",
                 f"{name}: Error",
-                alarms.alarm_fields(is_.alarms),
+                alarms.alarm_fields(is_.alarms, tz),
                 dedupe_key=alarms.throttle_key(is_.alarms),
             )
         )
@@ -297,16 +310,21 @@ def _settings(s: ApplianceState) -> list[tuple[str, str | None]]:
     ]
 
 
-def _started(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
+def _started(
+    s: ApplianceState, t: CycleTracker, now: float, tz: tzinfo | None
+) -> tuple[Field, ...]:
     return fields(
         ("Status", "Started"),
         ("Programme", t.course_label(s.course)),
         *_settings(s),
         ("Time Remaining", fmt_duration(s.remaining_s) if s.remaining_s else None),
+        ("Estimated Finish", _eta(s, now, tz)),
     )
 
 
-def _scheduled(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
+def _scheduled(
+    s: ApplianceState, t: CycleTracker, now: float, tz: tzinfo | None
+) -> tuple[Field, ...]:
     # The WW80 reports remainingTime == delayEndTime while waiting, so the
     # cycle length (and hence the start time) is not knowable.
     return fields(
@@ -314,14 +332,18 @@ def _scheduled(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
         ("Programme", t.course_label(s.course)),
         *_settings(s),
         ("Finishes In", fmt_duration(s.delay_end_s) if s.delay_end_s else None),
+        ("Estimated Finish", fmt_clock(now + s.delay_end_s, tz) if s.delay_end_s else None),
     )
 
 
-def _resumed(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
+def _resumed(
+    s: ApplianceState, t: CycleTracker, now: float, tz: tzinfo | None
+) -> tuple[Field, ...]:
     return fields(
         ("Status", "Resumed"),
         ("Phase", _phase_label(s, t)),
         ("Time Remaining", fmt_duration(s.remaining_s) if s.remaining_s else None),
+        ("Estimated Finish", _eta(s, now, tz)),
     )
 
 
@@ -365,9 +387,12 @@ def _cancelled(was: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
     )
 
 
-def _phase(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
+def _phase(
+    s: ApplianceState, t: CycleTracker, now: float, tz: tzinfo | None
+) -> tuple[Field, ...]:
     return fields(
         ("Status", _phase_label(s, t)),
         ("Time Remaining", fmt_duration(s.remaining_s) if s.remaining_s else None),
+        ("Estimated Finish", _eta(s, now, tz)),
         ("Percentage Complete", f"{s.progress_pct}%" if s.progress_pct is not None else None),
     )

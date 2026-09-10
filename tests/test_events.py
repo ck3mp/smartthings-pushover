@@ -1,5 +1,14 @@
+from datetime import UTC, timedelta, timezone
+
 from smartthings_pushover.appliance import ApplianceState
-from smartthings_pushover.events import CycleTracker, Event, detect, fields, fmt_duration
+from smartthings_pushover.events import (
+    CycleTracker,
+    Event,
+    detect,
+    fields,
+    fmt_clock,
+    fmt_duration,
+)
 
 NAME = "Washer"
 
@@ -99,7 +108,7 @@ def test_cycle_started_fields():
     evs = detect(
         st(),
         st(machine_state="Run", progress="Weightsensing", remaining_s=4200),
-        t, NAME, now=1000.0,
+        t, NAME, now=1000.0, tz=UTC,
     )
     assert kinds(evs) == ["cycle_started"]
     assert evs[0].fields == (
@@ -109,10 +118,11 @@ def test_cycle_started_fields():
         ("Spin", "1400 rpm"),
         ("Rinses", "2"),
         ("Time Remaining", "1h 10m"),
+        ("Estimated Finish", "01:26"),
     )
     assert evs[0].message == (
         "Status: Started\nProgramme: Eco 40-60\nTemperature: 40°\nSpin: 1400 rpm\n"
-        "Rinses: 2\nTime Remaining: 1h 10m"
+        "Rinses: 2\nTime Remaining: 1h 10m\nEstimated Finish: 01:26"
     )
     assert t.started_at == 1000.0
 
@@ -145,6 +155,7 @@ def test_pause_resume():
     )
     assert kinds(evs) == ["cycle_resumed"]
     assert f(evs[0])["Status"] == "Resumed" and f(evs[0])["Phase"] == "Washing"
+    assert "Estimated Finish" in f(evs[0])
     assert t.started_at is not None
 
 
@@ -246,9 +257,12 @@ def test_phase_changes_only_while_running():
     evs = detect(
         st(machine_state="Run", progress="Wash"),
         st(machine_state="Run", progress="Spin", remaining_s=840, progress_pct=31), t, NAME,
+        now=0.0, tz=UTC,
     )
     assert kinds(evs) == ["phase_changed"]
-    assert evs[0].message == "Status: Spinning\nTime Remaining: 14m\nPercentage Complete: 31%"
+    assert evs[0].message == (
+        "Status: Spinning\nTime Remaining: 14m\nEstimated Finish: 00:14\nPercentage Complete: 31%"
+    )
     evs = detect(st(), st(machine_state="Run", progress="Wash"), t, NAME)
     assert kinds(evs) == ["cycle_started"]
 
@@ -279,10 +293,10 @@ def test_alarm_real_door_open_shape():
     t = CycleTracker()
     alarm = (("items", "{id=0, description=Alarm, alarmType=Device, code=ErrorCode_DC, "
                        "triggeredTime=2026-09-10T12:40:48, state=Created}"),)
-    evs = detect(st(), st(alarms=alarm), t, NAME)
+    evs = detect(st(), st(alarms=alarm), t, NAME, tz=timezone(timedelta(hours=1)))
     assert evs[0].fields == (
         ("Status", "Error"), ("Code", "DC"), ("Meaning", "Door open or not latched"),
-        ("Raised", "12:40:48 UTC"))
+        ("Raised", "13:40"))
     assert evs[0].dedupe_key == "DC"
 
 
@@ -317,6 +331,12 @@ def test_fmt_duration():
     assert fmt_duration(3600 + 5 * 60) == "1h 05m"
 
 
+def test_fmt_clock_is_24h_in_given_zone():
+    assert fmt_clock(13 * 3600 + 5 * 60, UTC) == "13:05"
+    assert fmt_clock(13 * 3600 + 5 * 60, timezone(timedelta(hours=1))) == "14:05"
+    assert fmt_clock(23 * 3600 + 59 * 60, UTC) == "23:59"
+
+
 # ---- dryer -------------------------------------------------------------------
 def test_dryer_fields():
     t = CycleTracker(course_names={"16": "Cotton"}, kind="dryer")
@@ -326,10 +346,10 @@ def test_dryer_fields():
                  water_temp=None, spin=None, rinse=None, dry_level="Normal",
                  dry_time_s=0, remaining_s=7200)
     detect(None, idle, t, "Dryer", now=0)
-    evs = detect(idle, running, t, "Dryer", now=0)
+    evs = detect(idle, running, t, "Dryer", now=0, tz=UTC)
     assert evs[0].fields == (
         ("Status", "Started"), ("Programme", "Cotton"), ("Dry Level", "Normal"),
-        ("Time Remaining", "2h"))
+        ("Time Remaining", "2h"), ("Estimated Finish", "02:00"))
     cooling = st(course="16", machine_state="Run", progress="Cooling",
                  water_temp=None, spin=None, rinse=None, remaining_s=300)
     evs = detect(running, cooling, t, "Dryer", now=100)
@@ -359,11 +379,12 @@ def test_delay_end_scheduled_then_started():
     assert detect(st(), armed, t, NAME, now=0.0) == []
     waiting = st(machine_state="Run", progress="None", remaining_s=4 * 3600,
                  delay_end_s=4 * 3600)
-    evs = detect(armed, waiting, t, NAME, now=0.0)
+    evs = detect(armed, waiting, t, NAME, now=0.0, tz=UTC)
     assert kinds(evs) == ["cycle_scheduled"]
     assert evs[0].fields == (
         ("Status", "Delayed Start Armed"), ("Programme", "Eco 40-60"),
-        ("Temperature", "40°"), ("Spin", "1400 rpm"), ("Rinses", "2"), ("Finishes In", "4h"))
+        ("Temperature", "40°"), ("Spin", "1400 rpm"), ("Rinses", "2"), ("Finishes In", "4h"),
+        ("Estimated Finish", "04:00"))
     assert t.scheduled and t.started_at is None
     later = st(machine_state="Run", progress="None", remaining_s=3 * 3600, delay_end_s=3 * 3600)
     assert detect(waiting, later, t, NAME, now=3600.0) == []
