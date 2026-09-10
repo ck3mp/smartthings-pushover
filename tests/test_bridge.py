@@ -1,6 +1,7 @@
 """Bridge tests against a fake DTLS session. Nothing here opens a socket."""
 
 import logging
+import re
 import threading
 import time
 from types import SimpleNamespace
@@ -105,8 +106,13 @@ def deliver(bridge, href, rep):
                                                 registration=False))
 
 
+def plain(m):
+    """Strip Pushover HTML so assertions read like the log lines."""
+    return re.sub(r"<[^>]+>", "", m["message"])
+
+
 def messages(sender):
-    return [m["message"].splitlines()[0] for m in sender.submitted]
+    return [plain(m).splitlines()[0] for m in sender.submitted]
 
 
 # ---- seed ------------------------------------------------------------------
@@ -128,11 +134,14 @@ def test_seed_then_observe_start_and_finish():
     bridge.seed(FakeSession(IDLE_LINKS))
     running = with_state(IDLE_LINKS, "Run", "Wash", "01:10:00")["/operational/state/vs/0"]
     deliver(bridge, "/operational/state/vs/0", running)
-    assert messages(sender) == ["Cycle started: Eco 40-60"]
+    assert messages(sender) == ["Status: Started"]
+    assert "Programme: Eco 40-60" in plain(sender.submitted[0])
+    assert sender.submitted[0]["html"] is True
+    assert sender.submitted[0]["message"].startswith("<b>Status:</b> Started")
     assert sender.submitted[0]["sound"] is None
     done = with_state(IDLE_LINKS, "End", "Finish", "00:00:00")["/operational/state/vs/0"]
     deliver(bridge, "/operational/state/vs/0", done)
-    assert messages(sender)[-1] == "Laundry is done: Eco 40-60"
+    assert messages(sender)[-1] == "Status: Complete"
     assert sender.submitted[-1]["sound"] == "magic"
     assert sender.submitted[-1]["priority"] == 0
 
@@ -143,8 +152,8 @@ def test_reseed_after_long_outage_reports_finished_not_cancelled():
     bridge.seed(FakeSession(running))
     # Bridge drops, the whole rest of the cycle happens, it reconnects to Ready.
     bridge.seed(FakeSession(IDLE_LINKS), outage_s=1800.0)
-    assert messages(sender) == ["Laundry is done: Eco 40-60"]
-    assert "disconnected" in sender.submitted[0]["message"]
+    assert messages(sender) == ["Status: Complete"]
+    assert "Note: Finished while the bridge was disconnected" in plain(sender.submitted[0])
 
 
 def test_reseed_after_short_outage_reports_cancelled():
@@ -152,7 +161,8 @@ def test_reseed_after_short_outage_reports_cancelled():
     bridge, sender, _ = make_bridge(running)
     bridge.seed(FakeSession(running))
     bridge.seed(FakeSession(IDLE_LINKS), outage_s=30.0)
-    assert messages(sender) == ["Cycle stopped before finishing: Eco 40-60"]
+    assert messages(sender) == ["Status: Cancelled"]
+    assert "Programme: Eco 40-60" in plain(sender.submitted[0])
 
 
 def test_seed_rejects_bad_response():
@@ -171,7 +181,7 @@ def test_startup_event_once_when_enabled():
     bridge, sender, _ = make_bridge(dict(IDLE_LINKS), cfg)
     bridge.seed(FakeSession(IDLE_LINKS))
     bridge.seed(FakeSession(IDLE_LINKS))
-    assert messages(sender) == ["Bridge started. Washer is Ready."]
+    assert [plain(m) for m in sender.submitted] == ["Status: Bridge started\nAppliance State: Ready"]
 
 
 # ---- dispatch --------------------------------------------------------------
@@ -184,7 +194,7 @@ def test_alarm_is_forwarded_once_with_alarm_priority():
     deliver(bridge, "/alarms/vs/0", alarm)  # flaps back within the window
     assert len(sender.submitted) == 1
     assert sender.submitted[0]["priority"] == 1
-    assert sender.submitted[0]["message"].startswith("Error 5C: drain problem")
+    assert "Code: 5C\nMeaning: drain problem" in plain(sender.submitted[0])
 
 
 def test_alarm_reraised_with_new_timestamp_is_one_push():
@@ -203,7 +213,7 @@ def test_alarm_reraised_with_new_timestamp_is_one_push():
     deliver(bridge, "/alarms/vs/0", {})
     deliver(bridge, "/alarms/vs/0", alarm("2026-09-10T12:40:49"))
     assert len(sender.submitted) == 1
-    assert sender.submitted[0]["message"].startswith("Error DC: door open")
+    assert "Code: DC\nMeaning: door open" in plain(sender.submitted[0])
 
 
 def test_stale_sweep_does_not_flap_state():
@@ -228,7 +238,7 @@ def test_stale_sweep_does_not_flap_state():
     done = with_state(IDLE_LINKS, "End", "Finish", "00:00:00")["/operational/state/vs/0"]
     bridge.cache.apply_rep("/operational/state/vs/0", done, source="sweep")
     time.sleep(0.3)
-    assert messages(sender) == ["Laundry is done: Eco 40-60"]
+    assert messages(sender) == ["Status: Complete"]
 
 
 def test_unconfigured_events_are_logged_not_sent(caplog):
@@ -259,7 +269,7 @@ def test_tracker_persists_and_restores(tmp_path):
     assert sender2.submitted == []
     deliver(bridge2, "/operational/state/vs/0",
             with_state(IDLE_LINKS, "End", "Finish", "00:00:00")["/operational/state/vs/0"])
-    assert "Finished after" in sender2.submitted[0]["message"]
+    assert "Duration:" in plain(sender2.submitted[0])
     assert store.load()["started_at"] is None  # cleared after the finish
 
 

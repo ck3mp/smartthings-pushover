@@ -54,6 +54,16 @@ def test_form_encoding_and_success():
         "device": "phone", "timestamp": "1700000000"}
 
 
+def test_html_flag_sent_and_stripped_from_log_line():
+    captured = {}
+    send_once("tok", "usr", Notification(message="<b>Status:</b> Test", html=True),
+              opener=_opener_ok(captured))
+    assert captured["form"]["html"] == "1"
+    captured = {}
+    send_once("tok", "usr", Notification(message="plain"), opener=_opener_ok(captured))
+    assert "html" not in captured["form"]
+
+
 def test_optional_fields_omitted():
     captured = {}
     send_once("tok", "usr", Notification(message="hi"), opener=_opener_ok(captured))

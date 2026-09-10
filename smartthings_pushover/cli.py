@@ -70,12 +70,13 @@ def _test_notify(cfg: Config) -> int:
     log = logging.getLogger("main")
     title = " / ".join(a.name for a in cfg.appliances)
     note = Notification(
-        message=f"Test notification from smartthings-pushover {__version__}.",
+        message=f"<b>Status:</b> Test notification\n<b>Version:</b> {__version__}",
         title=title,
         priority=cfg.pushover_priority,
         sound=cfg.pushover_sound,
         device=cfg.pushover_device,
         timestamp=int(time.time()),
+        html=True,
     )
     try:
         result = send_once(cfg.pushover_token, cfg.pushover_user, note)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import re
 import threading
 import time
 import urllib.error
@@ -47,6 +48,7 @@ class Notification:
     sound: str | None = None
     device: str | None = None
     timestamp: int | None = None
+    html: bool = False  # message uses Pushover's HTML subset (<b>, <i>, <u>, <font>, <a>)
 
     def form(self, token: str, user: str) -> dict[str, str]:
         data = {
@@ -55,6 +57,8 @@ class Notification:
             "message": self.message[:MAX_MESSAGE],
             "priority": str(self.priority),
         }
+        if self.html:
+            data["html"] = "1"
         if self.title:
             data["title"] = self.title[:MAX_TITLE]
         if self.sound:
@@ -151,6 +155,7 @@ class Sender(Protocol):
         title: str | None = None,
         priority: int | None = None,
         sound: str | None = None,
+        html: bool = False,
     ) -> None: ...
 
 
@@ -169,9 +174,11 @@ class NullSender:
         title: str | None = None,
         priority: int | None = None,
         sound: str | None = None,
+        html: bool = False,
     ) -> None:
         self.submitted.append(
-            {"message": message, "title": title, "priority": priority, "sound": sound}
+            {"message": message, "title": title, "priority": priority, "sound": sound,
+             "html": html}
         )
 
 
@@ -230,6 +237,7 @@ class PushoverSender:
         title: str | None = None,
         priority: int | None = None,
         sound: str | None = None,
+        html: bool = False,
     ) -> None:
         note = Notification(
             message=message,
@@ -238,6 +246,7 @@ class PushoverSender:
             sound=sound or self.default_sound,
             device=self.default_device,
             timestamp=int(time.time()),
+            html=html,
         )
         self._q.put(note)
 
@@ -251,6 +260,8 @@ class PushoverSender:
 
     def _deliver(self, note: Notification) -> None:
         first_line = note.message.splitlines()[0] if note.message else ""
+        if note.html:
+            first_line = re.sub(r"<[^>]+>", "", first_line)
         if self.quota_reset_at is not None and time.time() < self.quota_reset_at:
             self.failed_count += 1
             self.log.error(

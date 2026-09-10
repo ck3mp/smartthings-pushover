@@ -1,12 +1,17 @@
-"""Turn consecutive ApplianceState snapshots into human-readable events.
+"""Turn consecutive ApplianceState snapshots into notification events.
 
 Pure functions: no I/O, no threads, easy to unit test. The bridge feeds
 `detect()` every time the cache changes and forwards whatever comes back
 to Pushover (filtered by the configured event set).
+
+Every event is a list of `Label: value` fields. `Event.message` renders
+them as plain text for logs; `Event.html()` renders them with bold labels
+for Pushover (which accepts a small HTML subset when `html=1` is sent).
 """
 
 from __future__ import annotations
 
+import html as _html
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -17,21 +22,39 @@ from .appliance import ApplianceState
 from .config import EventKind
 from .kinds import spec
 
+Field = tuple[str, str]
+
+
+def fields(*pairs: tuple[str, str | None]) -> tuple[Field, ...]:
+    """Drop pairs whose value is None or empty, keep order."""
+    return tuple((label, value) for label, value in pairs if value)
+
 
 @dataclass(frozen=True)
 class Event:
     kind: EventKind
     title: str
-    message: str
+    fields: tuple[Field, ...]
     priority: int | None = None  # None -> use the default priority
     sound: str | None = None  # None -> use the default sound
     dedupe_key: str | None = None  # alarms: what "the same alarm" means for throttling
+
+    @property
+    def message(self) -> str:
+        """Plain text, one `Label: value` per line."""
+        return "\n".join(f"{label}: {value}" for label, value in self.fields)
+
+    def html(self) -> str:
+        """Pushover HTML: bold labels, escaped values, one per line."""
+        return "\n".join(
+            f"<b>{_html.escape(label)}:</b> {_html.escape(value)}" for label, value in self.fields
+        )
 
 
 @dataclass
 class CycleTracker:
     """Mutable bookkeeping that spans a cycle: when it started and what
-    course it ran, so the finished message can say 'after 1h 12m'.
+    course it ran, so the finished message can report the duration.
 
     `started_at`, `course`, `initial_remaining_s` and `scheduled` are the
     persisted part (see `to_dict` / `restore`); the rest is static
@@ -42,7 +65,7 @@ class CycleTracker:
     initial_remaining_s: int | None = None
     scheduled: bool = False  # Delay End is armed; the cycle proper hasn't begun
     course_names: Mapping[str, str] = field(default_factory=dict)
-    kind: str = "washer"  # picks the wording of a few messages
+    kind: str = "washer"  # picks the phase wording
 
     @property
     def active(self) -> bool:
@@ -99,23 +122,7 @@ def fmt_duration(seconds: int | float | None) -> str | None:
         return f"{h}h"
     if m:
         return f"{m}m"
-    return "under a minute" if seconds else "0m"
-
-
-def _settings_line(s: ApplianceState) -> str:
-    bits = []
-    if s.water_temp and s.water_temp != "None":
-        bits.append(f"{s.water_temp}°" if s.water_temp.isdigit() else s.water_temp)
-    if s.spin and s.spin != "None":
-        bits.append(f"{s.spin} rpm" if s.spin.isdigit() else s.spin)
-    if s.rinse and s.rinse.isdigit():
-        n = int(s.rinse)
-        bits.append(f"{n} rinse" + ("s" if n != 1 else ""))
-    if s.dry_level and s.dry_level != "None":
-        bits.append(f"{s.dry_level.lower()} dry")
-    if s.dry_time_s:
-        bits.append(f"{fmt_duration(s.dry_time_s)} timed")
-    return ", ".join(bits)
+    return "under 1m" if seconds else "0m"
 
 
 def _baseline(cur: ApplianceState, tracker: CycleTracker) -> None:
@@ -166,9 +173,9 @@ def detect(
     # ---- power ---------------------------------------------------------
     if was.power != is_.power and is_.power is not None and was.power is not None:
         if is_.power == "On":
-            events.append(Event("power_on", name, "Powered on"))
+            events.append(Event("power_on", name, fields(("Status", "Powered on"))))
         elif is_.power == "Off":
-            events.append(Event("power_off", name, "Powered off"))
+            events.append(Event("power_off", name, fields(("Status", "Powered off"))))
 
     # ---- cycle transitions -------------------------------------------
     started_now = False
@@ -177,29 +184,29 @@ def detect(
             if not tracker.scheduled:
                 tracker._begin(is_, None)
                 tracker.scheduled = True
-                events.append(Event("cycle_scheduled", name, _scheduled_msg(is_, tracker)))
+                events.append(Event("cycle_scheduled", name, _scheduled(is_, tracker)))
             # else: door closed again during the wait; still just waiting.
         elif was.paused and tracker.active and not tracker.scheduled:
-            events.append(Event("cycle_resumed", name, _resumed_msg(is_)))
+            events.append(Event("cycle_resumed", name, _resumed(is_, tracker)))
         else:
             tracker._begin(is_, now)
             started_now = True
-            events.append(Event("cycle_started", name, _started_msg(is_, tracker)))
+            events.append(Event("cycle_started", name, _started(is_, tracker)))
     elif was.running and is_.running and tracker.scheduled and not is_.delay_waiting:
         # The Delay End wait is over and the drum has started.
         tracker._begin(is_, now)
         started_now = True
-        events.append(Event("cycle_started", name, _started_msg(is_, tracker)))
+        events.append(Event("cycle_started", name, _started(is_, tracker)))
     elif was.running and is_.paused:
         if not tracker.scheduled:  # a pause during the Delay End wait is just the door
-            events.append(Event("cycle_paused", name, _paused_msg(is_)))
+            events.append(Event("cycle_paused", name, _paused(is_, tracker)))
     elif was.finished:
         # Already reported. End/Finish -> Ready (door opened, dial turned)
         # just clears the tracker; Finish -> Finish is a no-op.
         if not is_.in_cycle and not is_.finished:
             tracker._reset()
     elif was.in_cycle and is_.finished:
-        events.append(Event("cycle_finished", name, _finished_msg(is_, tracker, now)))
+        events.append(Event("cycle_finished", name, _finished(is_, tracker, now)))
         tracker._reset()
     elif was.in_cycle and not is_.in_cycle and not is_.finished:
         # Run/Pause -> Ready without passing through End: user hit
@@ -215,11 +222,11 @@ def detect(
                 Event(
                     "cycle_finished",
                     name,
-                    _finished_msg(is_, tracker, now, while_offline=outage_covered),
+                    _finished(is_, tracker, now, while_offline=outage_covered),
                 )
             )
         else:
-            events.append(Event("cycle_cancelled", name, _cancelled_msg(was, tracker)))
+            events.append(Event("cycle_cancelled", name, _cancelled(was, tracker)))
         tracker._reset()
 
     # ---- phase (Wash -> Rinse -> Spin) ---------------------------------
@@ -233,15 +240,15 @@ def detect(
         and not is_.finished
         and not was.finished
     ):
-        events.append(Event("phase_changed", name, _phase_msg(is_, tracker)))
+        events.append(Event("phase_changed", name, _phase(is_, tracker)))
 
     # ---- alarms -------------------------------------------------------
     if was.alarms != is_.alarms and is_.alarms:
         events.append(
             Event(
                 "alarm",
-                f"{name}: alert",
-                alarms.describe(is_.alarms),
+                f"{name}: Error",
+                alarms.alarm_fields(is_.alarms),
                 dedupe_key=alarms.throttle_key(is_.alarms),
             )
         )
@@ -253,97 +260,114 @@ def detect(
         and is_.remote_control is not None
         and was.remote_control != is_.remote_control
     ):
-        state = "enabled" if is_.remote_control else "disabled"
-        events.append(Event("remote_control", name, f"Remote control {state}"))
+        state = "Enabled" if is_.remote_control else "Disabled"
+        events.append(Event("remote_control", name, fields(("Remote Control", state))))
     if (
         was.child_lock is not None
         and is_.child_lock is not None
         and was.child_lock != is_.child_lock
     ):
-        state = "on" if is_.child_lock else "off"
-        events.append(Event("child_lock", name, f"Child lock {state}"))
+        state = "On" if is_.child_lock else "Off"
+        events.append(Event("child_lock", name, fields(("Child Lock", state))))
 
     return events
 
 
 # ---------------------------------------------------------------------------
-# message wording
+# field builders
 # ---------------------------------------------------------------------------
-def _started_msg(s: ApplianceState, t: CycleTracker) -> str:
-    parts = ["Cycle started"]
-    label = t.course_label(s.course)
-    if label:
-        parts[0] += f": {label}"
-    settings = _settings_line(s)
-    if settings:
-        parts.append(settings)
-    if s.remaining_s:
-        parts.append(f"about {fmt_duration(s.remaining_s)} remaining")
-    return "\n".join(parts)
+def _phase_label(s: ApplianceState, t: CycleTracker) -> str | None:
+    if s.progress in (None, "None"):
+        return None
+    return spec(t.kind).phase_labels.get(s.progress or "", s.progress)
 
 
-def _scheduled_msg(s: ApplianceState, t: CycleTracker) -> str:
-    label = t.course_label(s.course)
-    parts = ["Delayed start set" + (f": {label}" if label else "")]
-    settings = _settings_line(s)
-    if settings:
-        parts.append(settings)
-    if s.delay_end_s:
-        # The WW80 reports remainingTime == delayEndTime while waiting, so
-        # the cycle length (and hence the start time) is not knowable.
-        parts.append(f"finishes in about {fmt_duration(s.delay_end_s)}")
-    return "\n".join(parts)
+def _settings(s: ApplianceState) -> list[tuple[str, str | None]]:
+    def opt(v: str | None) -> str | None:
+        return None if v in (None, "None") else v
+
+    temp = opt(s.water_temp)
+    spin = opt(s.spin)
+    return [
+        ("Temperature", f"{temp}°" if temp and temp.isdigit() else temp),
+        ("Spin", f"{spin} rpm" if spin and spin.isdigit() else spin),
+        ("Rinses", s.rinse if s.rinse and s.rinse.isdigit() else None),
+        ("Dry Level", opt(s.dry_level)),
+        ("Dry Time", fmt_duration(s.dry_time_s) if s.dry_time_s else None),
+    ]
 
 
-def _resumed_msg(s: ApplianceState) -> str:
-    msg = "Cycle resumed"
-    if s.remaining_s:
-        msg += f", about {fmt_duration(s.remaining_s)} remaining"
-    return msg
+def _started(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
+    return fields(
+        ("Status", "Started"),
+        ("Programme", t.course_label(s.course)),
+        *_settings(s),
+        ("Time Remaining", fmt_duration(s.remaining_s) if s.remaining_s else None),
+    )
 
 
-def _paused_msg(s: ApplianceState) -> str:
-    msg = "Cycle paused"
-    if s.progress and s.progress != "None":
-        msg += f" during {s.progress.lower()}"
-    if s.remaining_s:
-        msg += f", {fmt_duration(s.remaining_s)} remaining"
-    return msg
+def _scheduled(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
+    # The WW80 reports remainingTime == delayEndTime while waiting, so the
+    # cycle length (and hence the start time) is not knowable.
+    return fields(
+        ("Status", "Delayed start armed"),
+        ("Programme", t.course_label(s.course)),
+        *_settings(s),
+        ("Finishes In", fmt_duration(s.delay_end_s) if s.delay_end_s else None),
+    )
 
 
-def _finished_msg(
+def _resumed(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
+    return fields(
+        ("Status", "Resumed"),
+        ("Phase", _phase_label(s, t)),
+        ("Time Remaining", fmt_duration(s.remaining_s) if s.remaining_s else None),
+    )
+
+
+def _paused(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
+    return fields(
+        ("Status", "Paused"),
+        ("Phase", _phase_label(s, t)),
+        ("Time Remaining", fmt_duration(s.remaining_s) if s.remaining_s else None),
+    )
+
+
+def _finished(
     s: ApplianceState, t: CycleTracker, now: float, *, while_offline: bool = False
-) -> str:
-    label = t.course_label(t.course or s.course)
-    msg = spec(t.kind).finished_headline
-    if label:
-        msg += f": {label}"
+) -> tuple[Field, ...]:
+    duration = None
+    length = None
     if while_offline:
-        msg += "\nFinished while the bridge was disconnected"
+        pass
     elif t.started_at is not None:
-        msg += f"\nFinished after {fmt_duration(now - t.started_at)}"
+        duration = fmt_duration(now - t.started_at)
     elif t.initial_remaining_s:
-        msg += f"\nCycle was about {fmt_duration(t.initial_remaining_s)}"
-    return msg
+        length = f"about {fmt_duration(t.initial_remaining_s)}"
+    return fields(
+        ("Status", "Complete"),
+        ("Programme", t.course_label(t.course or s.course)),
+        ("Duration", duration),
+        ("Cycle Length", length),
+        ("Note", "Finished while the bridge was disconnected" if while_offline else None),
+    )
 
 
-def _cancelled_msg(was: ApplianceState, t: CycleTracker) -> str:
-    label = t.course_label(t.course or was.course)
-    msg = "Delayed start cancelled" if t.scheduled else "Cycle stopped before finishing"
-    if label:
-        msg += f": {label}"
-    if not t.scheduled and was.progress and was.progress != "None":
-        msg += f"\nWas in {was.progress.lower()}"
-        if was.remaining_s:
-            msg += f" with {fmt_duration(was.remaining_s)} remaining"
-    return msg
+def _cancelled(was: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
+    return fields(
+        ("Status", "Delayed start cancelled" if t.scheduled else "Cancelled"),
+        ("Programme", t.course_label(t.course or was.course)),
+        ("Phase", None if t.scheduled else _phase_label(was, t)),
+        (
+            "Time Remaining",
+            fmt_duration(was.remaining_s) if was.remaining_s and not t.scheduled else None,
+        ),
+    )
 
 
-def _phase_msg(s: ApplianceState, t: CycleTracker) -> str:
-    verb = spec(t.kind).phase_verbs.get(s.progress or "")
-    msg = f"Now {verb}" if verb else f"Phase: {s.progress}"
-    if s.remaining_s:
-        msg += f", {fmt_duration(s.remaining_s)} remaining"
-    if s.progress_pct is not None:
-        msg += f" ({s.progress_pct}%)"
-    return msg
+def _phase(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
+    return fields(
+        ("Status", _phase_label(s, t)),
+        ("Time Remaining", fmt_duration(s.remaining_s) if s.remaining_s else None),
+        ("Percentage Complete", f"{s.progress_pct}%" if s.progress_pct is not None else None),
+    )

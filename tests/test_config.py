@@ -67,7 +67,7 @@ def test_dryer_enabled_by_ip(env):
     assert d.name == "Tumble dryer"
     assert d.dtls_local_port == 49701
     assert d.course_names == {"16": "Cotton"}
-    assert d.spec.finished_headline == "Laundry is dry"
+    assert d.spec.phase_labels["Cooling"] == "Cooling"
 
 
 def test_enabled_flags(env):

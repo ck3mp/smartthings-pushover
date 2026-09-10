@@ -44,8 +44,9 @@ docker compose logs -f
 ```
 
 Within a few seconds each appliance should log `DTLS connected` and
-`seeded`. Start a cycle and your phone gets "Cycle started"; when it ends,
-"Laundry is done". The rest of this document explains the certificate,
+`seeded`. Start a cycle and your phone gets `Status: Started` with the
+programme, settings and time remaining; when it ends, `Status: Complete`
+with the duration. The rest of this document explains the certificate,
 every setting, and what to expect from the machines.
 
 ## What you need
@@ -193,21 +194,42 @@ client is already talking to it). At least one must be enabled.
 `EVENTS` is a comma-separated list. Default:
 `cycle_scheduled,cycle_started,cycle_finished,cycle_paused,cycle_cancelled,alarm`
 
-| Event             | Fires when                                                     |
-|-------------------|----------------------------------------------------------------|
-| `cycle_scheduled` | Start pressed with Delay End armed. Says when the cycle will finish |
-| `cycle_started`   | The drum starts (or the Delay End wait elapses). Message includes course, temp/spin/rinses (washer) or dry level/time (dryer), ETA |
-| `cycle_finished`  | The cycle completes. "Laundry is done" / "Laundry is dry", with elapsed time |
-| `cycle_paused`    | Paused mid-cycle                                               |
-| `cycle_resumed`   | Resumed after a pause                                          |
-| `cycle_cancelled` | Stopped or powered off before finishing (also a cancelled Delay End) |
-| `phase_changed`   | Wash → Rinse → Spin (washer), Drying → Cooling (dryer)          |
-| `alarm`           | The appliance raises an error. Known codes are decoded (4C water supply, 5C drain, DC door, …) and the raw fields are appended |
-| `power_on` / `power_off` | Panel power toggled                                     |
-| `remote_control`  | Remote-control (SmartThings) toggle on the panel changed        |
-| `child_lock`      | Child lock changed                                             |
-| `offline` / `online` | Appliance unreachable for `OFFLINE_AFTER_S` seconds / back   |
-| `startup`         | One message per appliance when the bridge first connects        |
+Every notification is titled with the appliance's name and consists of
+`Label: value` lines, labels in bold. Fields that don't apply are omitted.
+For example, a washer phase change:
+
+```
+Status: Spinning
+Time Remaining: 14m
+Percentage Complete: 31%
+```
+
+and a cycle start:
+
+```
+Status: Started
+Programme: Eco 40-60
+Temperature: 40°
+Spin: 1400 rpm
+Rinses: 2
+Time Remaining: 2h 36m
+```
+
+| Event             | Fires when                                                   | Fields |
+|-------------------|--------------------------------------------------------------|--------|
+| `cycle_scheduled` | Start pressed with Delay End armed                           | Status, Programme, settings, Finishes In |
+| `cycle_started`   | The drum starts (or the Delay End wait elapses)              | Status, Programme, Temperature / Spin / Rinses (washer) or Dry Level / Dry Time (dryer), Time Remaining |
+| `cycle_finished`  | The cycle completes                                          | Status: Complete, Programme, Duration (or Cycle Length if the start wasn't seen) |
+| `cycle_paused`    | Paused mid-cycle                                             | Status, Phase, Time Remaining |
+| `cycle_resumed`   | Resumed after a pause                                        | Status, Phase, Time Remaining |
+| `cycle_cancelled` | Stopped or powered off before finishing (also a cancelled Delay End) | Status, Programme, Phase, Time Remaining |
+| `phase_changed`   | Wash → Rinse → Spin (washer), Drying → Cooling (dryer)        | Status, Time Remaining, Percentage Complete |
+| `alarm`           | The appliance raises an error                                | Status: Error, Code, Meaning (4C water supply, 5C drain, DC door, …), Raised; raw Details when the code is unknown |
+| `power_on` / `power_off` | Panel power toggled                                   | Status |
+| `remote_control`  | Remote-control (SmartThings) toggle on the panel changed      | Remote Control: Enabled / Disabled |
+| `child_lock`      | Child lock changed                                           | Child Lock: On / Off |
+| `offline` / `online` | Appliance unreachable for `OFFLINE_AFTER_S` seconds / back | Status, Unreachable For |
+| `startup`         | One message per appliance when the bridge first connects      | Status, Appliance State |
 
 `EVENTS=all` enables everything. Anything not in the list is still logged,
 just not sent.
@@ -339,11 +361,13 @@ it alone.
   as "finished" rather than "cancelled". The cycle tracker (start time,
   course) is persisted in `STATE_DIR`, so "Finished after 1h 12m" survives
   a container restart too.
-- **Kinds:** everything washer- or dryer-specific (course resource, "done"
-  wording, phase verbs, env-var defaults) is one entry in
+- **Kinds:** everything washer- or dryer-specific (course resource, phase
+  wording, env-var defaults) is one entry in
   `smartthings_pushover/kinds.py`. A further appliance on the same
   firmware family is a new row there.
-- **Pushover:** a background queue with retries on network errors and 5xx.
+- **Pushover:** messages are sent with Pushover's HTML flag so labels
+  render bold; the same fields are logged as plain text. A background
+  queue retries on network errors and 5xx.
   A 4xx (bad token, invalid user) is logged once and not retried. A 429
   means the application's monthly quota is used up; it is logged with the
   reset time and messages are dropped until then instead of retried.

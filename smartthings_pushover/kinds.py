@@ -21,8 +21,7 @@ class KindSpec:
     default_local_port: int
     course_path: tuple[str, ...]  # resource holding the selected course
     course_key: str  # key whose value looks like Table_NN_Course_HH
-    finished_headline: str
-    phase_verbs: Mapping[str, str]
+    phase_labels: Mapping[str, str]  # progress value -> "Status" wording
 
     @property
     def prefix(self) -> str:
@@ -40,13 +39,13 @@ WASHER = KindSpec(
     default_local_port=49700,
     course_path=("st", "washercourse", "vs", "0"),
     course_key="x.com.samsung.da.st.washerMode",
-    finished_headline="Laundry is done",
-    phase_verbs=MappingProxyType(
+    phase_labels=MappingProxyType(
         {
-            "Weightsensing": "weighing the load",
-            "Wash": "washing",
-            "Rinse": "rinsing",
-            "Spin": "spinning",
+            "Weightsensing": "Weighing load",
+            "Wash": "Washing",
+            "Rinse": "Rinsing",
+            "Spin": "Spinning",
+            "Finish": "Finishing",
         }
     ),
 )
@@ -57,11 +56,11 @@ DRYER = KindSpec(
     default_local_port=49701,
     course_path=("st", "dryercourse", "vs", "0"),
     course_key="x.com.samsung.da.st.dryerMode",
-    finished_headline="Laundry is dry",
-    phase_verbs=MappingProxyType(
+    phase_labels=MappingProxyType(
         {
-            "Drying": "drying",
-            "Cooling": "cooling down",
+            "Drying": "Drying",
+            "Cooling": "Cooling",
+            "Finish": "Finishing",
         }
     ),
 )

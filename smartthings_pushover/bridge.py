@@ -34,7 +34,7 @@ from smartthings_local.protocol.dtls_session import ConnectCancellation, DtlsCoa
 from . import appliance
 from .alarms import AlarmThrottle
 from .config import OCF_PORT_CANDIDATES, ApplianceConfig, Config
-from .events import CycleTracker, Event, detect
+from .events import CycleTracker, Event, detect, fields, fmt_duration
 from .health import Reachability
 from .persistence import TrackerStore
 from .pushover import Sender
@@ -315,7 +315,10 @@ class ApplianceBridge:
                 Event(
                     "startup",
                     self.app.name,
-                    f"Bridge started. {self.app.name} is {state.machine_state or 'unknown'}.",
+                    fields(
+                        ("Status", "Bridge started"),
+                        ("Appliance State", state.machine_state or "unknown"),
+                    ),
                 )
             )
 
@@ -414,7 +417,7 @@ class ApplianceBridge:
             sound = self.cfg.pushover_finished_sound
         self.notification_count += 1
         self.log.info("notify %s (priority %d): %s", ev.kind, priority, flat)
-        self.sender.submit(ev.message, title=ev.title, priority=priority, sound=sound)
+        self.sender.submit(ev.html(), title=ev.title, priority=priority, sound=sound, html=True)
 
     # ------------------------------------------------------------------
     # reachability
@@ -424,7 +427,16 @@ class ApplianceBridge:
         if outage is not None:
             self.log.info("%s reachable again after %.0fs", self.app.kind, outage)
         if was_offline:
-            self._dispatch(Event("online", self.app.name, f"{self.app.name} is reachable again"))
+            self._dispatch(
+                Event(
+                    "online",
+                    self.app.name,
+                    fields(
+                        ("Status", "Reachable"),
+                        ("Unreachable For", fmt_duration(outage) if outage else None),
+                    ),
+                )
+            )
 
     def _on_unreachable(self, sess: Any) -> None:
         # Keepalive says the session is half-open: no 2.05 in the liveness
@@ -439,12 +451,14 @@ class ApplianceBridge:
         tick = 0.0
         while not self.stop.wait(HEALTH_TICK_S):
             if self.reach.crossed_offline(time.time()):
-                minutes = int(self.cfg.offline_after_s // 60)
                 self._dispatch(
                     Event(
                         "offline",
                         self.app.name,
-                        f"{self.app.name} unreachable for {minutes} minutes",
+                        fields(
+                            ("Status", "Unreachable"),
+                            ("Unreachable For", fmt_duration(self.cfg.offline_after_s)),
+                        ),
                     )
                 )
             tick += HEALTH_TICK_S

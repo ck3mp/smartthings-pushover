@@ -91,18 +91,27 @@ def throttle_key(alarms: Iterable[tuple[str, str]]) -> str:
     return ",".join(codes) if codes else "\n".join(f"{k}: {v}" for k, v in pairs)
 
 
-def describe(alarms: Iterable[tuple[str, str]]) -> str:
-    """Human text for an alarm notification: one line per recognised
-    code, then the raw fields so nothing is hidden."""
+_TRIGGERED_RE = re.compile(r"\btriggeredTime=(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})")
+
+
+def alarm_fields(alarms: Iterable[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
+    """Notification fields for an alarm: Status, then Code / Meaning per
+    recognised code, the raise time if present, and the raw fields only
+    when no code could be decoded (so nothing is hidden)."""
     pairs = tuple(alarms)
-    lines: list[str] = []
-    for code in codes_in(pairs):
-        meaning = ALARM_CODES.get(code)
-        lines.append(f"Error {code}: {meaning}" if meaning else f"Error {code} (see the panel)")
-    if not lines and pairs:
-        lines.append("Appliance reports a problem; check the panel")
-    lines.extend(f"{k}: {v}" for k, v in pairs)
-    return "\n".join(lines)
+    out: list[tuple[str, str]] = [("Status", "Error")]
+    codes = codes_in(pairs)
+    for code in codes:
+        out.append(("Code", code))
+        out.append(("Meaning", ALARM_CODES.get(code, "not in the code table; check the panel")))
+    for _key, value in pairs:
+        m = _TRIGGERED_RE.search(value)
+        if m:
+            out.append(("Raised", f"{m.group(2)} UTC"))  # the appliance stamps UTC
+            break
+    if not codes:
+        out.append(("Details", "; ".join(f"{k}: {v}" for k, v in pairs) or "none"))
+    return tuple(out)
 
 
 class AlarmThrottle:
