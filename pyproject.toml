@@ -1,6 +1,6 @@
 [project]
 name = "smartthings-pushover"
-version = "1.0.0"
+version = "1.0.1"
 description = "Forward Samsung washer and dryer state changes to Pushover over local CoAP-DTLS."
 readme = "README.md"
 license = "MIT"

@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-10
+
 ### Changed
 
 - Notifications are now factual `Label: value` fields with bold labels
@@ -66,5 +68,6 @@ First public release.
 - Verified live against a WW80CGC04DAEEU washer and a DV80CGC0B0AEEU
   dryer, including a real door-open alarm and Delay End.
 
-[Unreleased]: https://github.com/ck3mp/smartthings-pushover/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ck3mp/smartthings-pushover/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/ck3mp/smartthings-pushover/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ck3mp/smartthings-pushover/releases/tag/v1.0.0
