@@ -9,47 +9,62 @@ Only the Samsung `/<x>/vs/0` siblings push OBSERVE notifications. The
 OCF-standard `/<x>/0` paths accept a registration and never fire, so
 everything here reads from the vendor paths.
 """
+
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from smartthings_local.ocf.poll_scheduler import PollTier
 
-KINDS = ("washer", "dryer")
+from .kinds import KIND_SPECS, KINDS, spec
+
+__all__ = [
+    "FINISHED_STATES",
+    "KINDS",
+    "PAUSED_STATES",
+    "RUNNING_STATES",
+    "SEED_PATH",
+    "STATE_PATH",
+    "ApplianceState",
+    "course_code",
+    "flatten",
+    "is_active",
+    "observe_paths",
+    "parse_hms",
+    "poll_tiers",
+    "supported_course_codes",
+    "warm_paths",
+]
 
 STATE_PATH = ("operational", "state", "vs", "0")
 SEED_PATH = ("device", "0")
-
-# Selected-course resource and the key holding `Table_NN_Course_HH`.
-COURSE_RESOURCES: dict[str, tuple[tuple[str, ...], str]] = {
-    "washer": (("st", "washercourse", "vs", "0"), "x.com.samsung.da.st.washerMode"),
-    "dryer": (("st", "dryercourse", "vs", "0"), "x.com.samsung.da.st.dryerMode"),
-}
+ALARMS_HREF = "/alarms/vs/0"
 
 _COMMON_WARM: tuple[tuple[str, ...], ...] = (
     ("power", "vs", "0"),
     ("kidslock", "vs", "0"),
     ("remotectrl", "vs", "0"),
     ("alarms", "vs", "0"),
-    ("washer", "vs", "0"),                   # temp/spin/rinse or dry level/time
+    ("washer", "vs", "0"),  # temp/spin/rinse or dry level/time
     ("wm", "jobbeginingstatus", "vs", "0"),
 )
 
 
 def warm_paths(kind: str) -> tuple[tuple[str, ...], ...]:
-    return _COMMON_WARM + (COURSE_RESOURCES[kind][0],)
+    return (*_COMMON_WARM, spec(kind).course_path)
 
 
 def observe_paths(kind: str) -> tuple[tuple[str, ...], ...]:
-    return (STATE_PATH,) + warm_paths(kind) + (("energy", "consumption", "vs", "0"),)
+    return (STATE_PATH, *warm_paths(kind), ("energy", "consumption", "vs", "0"))
+
 
 # Samsung `x.com.samsung.da.state` values seen on laundry firmware.
 RUNNING_STATES = frozenset({"Run", "Running"})
 PAUSED_STATES = frozenset({"Pause", "Paused"})
 FINISHED_STATES = frozenset({"End", "Finish", "Finished", "Complete"})
-IDLE_STATES = frozenset({"Ready", "Idle", "None", "Off"})
 
 
 def poll_tiers(kind: str, hot_s: float = 2.0, hot_active_s: float = 1.0) -> list[PollTier]:
@@ -88,14 +103,22 @@ def _s(v: Any) -> str | None:
 
 
 def _to_bool(v: Any) -> bool | None:
+    """'true'/'1'/'on'/'yes' -> True, 'false'/'0'/'off'/'no' -> False,
+    anything else (including None) -> None so a garbage value never
+    reads as a toggle."""
     if v is None:
         return None
     if isinstance(v, bool):
         return v
-    return str(v).strip().lower() in ("true", "1", "on", "yes")
+    low = str(v).strip().lower()
+    if low in ("true", "1", "on", "yes"):
+        return True
+    if low in ("false", "0", "off", "no"):
+        return False
+    return None
 
 
-def parse_hms(s: str | None) -> int | None:
+def parse_hms(s: Any) -> int | None:
     """'02:36:00' -> 9360 seconds. None on anything unparseable."""
     if not isinstance(s, str):
         return None
@@ -112,7 +135,7 @@ def parse_hms(s: str | None) -> int | None:
 _COURSE_RE = re.compile(r"(?:^|_)Course_([0-9A-Fa-f]+)$")
 
 
-def course_code(mode: str | None) -> str | None:
+def course_code(mode: Any) -> str | None:
     """'Table_02_Course_1C' -> '1C'. Returns the input verbatim if the
     string isn't in that shape (so unknown formats are still visible)."""
     if not isinstance(mode, str) or not mode:
@@ -137,7 +160,7 @@ def supported_course_codes(links: Mapping[str, Mapping[str, Any]]) -> list[str]:
     """
     rep = links.get("/course/vs/0") or {}
     raw = rep.get("x.com.samsung.da.supportedOptions")
-    if isinstance(raw, (list, tuple)):
+    if isinstance(raw, list | tuple):
         raw = "".join(str(x) for x in raw)
     if not isinstance(raw, str):
         return []
@@ -151,7 +174,7 @@ def supported_course_codes(links: Mapping[str, Mapping[str, Any]]) -> list[str]:
         return []
     codes: list[str] = []
     for i in range(0, len(body), rec):
-        code = body[i:i + 2].upper()
+        code = body[i : i + 2].upper()
         if code not in codes:
             codes.append(code)
     return codes
@@ -161,20 +184,21 @@ def supported_course_codes(links: Mapping[str, Mapping[str, Any]]) -> list[str]:
 class ApplianceState:
     """Flattened, comparable snapshot of what we care about. Washer-only
     and dryer-only fields are simply None on the other appliance."""
-    power: str | None = None                 # 'On' / 'Off'
-    machine_state: str | None = None         # 'Ready' / 'Run' / 'Pause' / 'End'
-    progress: str | None = None              # washer: 'None'/'Wash'/'Rinse'/'Spin'/'Finish'
-                                             # dryer:  'None'/'Drying'/'Cooling'/'Finish'
+
+    power: str | None = None  # 'On' / 'Off'
+    machine_state: str | None = None  # 'Ready' / 'Run' / 'Pause' / 'End'
+    progress: str | None = None  # washer: 'None'/'Wash'/'Rinse'/'Spin'/'Finish'
+    # dryer:  'None'/'Drying'/'Cooling'/'Finish'
     progress_pct: int | None = None
     remaining_s: int | None = None
     delay_end_s: int | None = None
-    course: str | None = None                # hex code, e.g. '1C'
-    water_temp: str | None = None            # washer
-    spin: str | None = None                  # washer
-    rinse: str | None = None                 # washer
-    dry_level: str | None = None             # dryer: 'Less' / 'Normal' / 'More'
-    dry_time_s: int | None = None            # dryer: manual time-dry setting, 0 = auto
-    wrinkle_prevent: bool | None = None      # dryer
+    course: str | None = None  # hex code, e.g. '1C'
+    water_temp: str | None = None  # washer
+    spin: str | None = None  # washer
+    rinse: str | None = None  # washer
+    dry_level: str | None = None  # dryer: 'Less' / 'Normal' / 'More'
+    dry_time_s: int | None = None  # dryer: manual time-dry setting, 0 = auto
+    wrinkle_prevent: bool | None = None  # dryer
     remote_control: bool | None = None
     child_lock: bool | None = None
     alarms: tuple[tuple[str, str], ...] = ()  # sorted (key, value) pairs
@@ -196,6 +220,19 @@ class ApplianceState:
     @property
     def in_cycle(self) -> bool:
         return self.running or self.paused
+
+    @property
+    def delay_waiting(self) -> bool:
+        """Delay End is armed and the drum is idle. Observed on the WW80:
+        while waiting the machine reports `Run`, progress `None`, and
+        both `remainingTime` and `delayEndTime` equal to the time until
+        the cycle *ends*; `Delaywash` also appears in supportedProgress.
+        A normal start reports `delayEndTime` 00:00:00."""
+        return (
+            self.running
+            and bool(self.delay_end_s)
+            and self.progress in (None, "None", "Delaywash")
+        )
 
     def remaining_hms(self) -> str | None:
         if self.remaining_s is None:
@@ -219,19 +256,24 @@ def _flatten_alarms(rep: Mapping[str, Any] | None) -> tuple[tuple[str, str], ...
 
 
 def _compact(v: Any) -> str:
-    if isinstance(v, (list, tuple)):
+    if isinstance(v, list | tuple):
         return ", ".join(_compact(x) for x in v)
     if isinstance(v, Mapping):
-        return "{" + ", ".join(
-            f"{str(k).replace('x.com.samsung.da.', '')}={_compact(x)}"
-            for k, x in v.items()) + "}"
+        return (
+            "{"
+            + ", ".join(
+                f"{str(k).replace('x.com.samsung.da.', '')}={_compact(x)}" for k, x in v.items()
+            )
+            + "}"
+        )
     return str(v)
 
 
 def flatten(links: Mapping[str, Mapping[str, Any]]) -> ApplianceState:
-    """links: href -> rep dict (the StateCache snapshot). Works for both
-    kinds: the washer- and dryer-specific keys never collide, so whatever
+    """links: href -> rep dict (the StateCache snapshot). Works for every
+    kind: the washer- and dryer-specific keys never collide, so whatever
     the tree carries is picked up and the rest stays None."""
+
     def g(href: str, key: str) -> Any:
         rep = links.get(href) or {}
         return rep.get(key)
@@ -249,37 +291,32 @@ def flatten(links: Mapping[str, Mapping[str, Any]]) -> ApplianceState:
         wh = None
 
     course = None
-    for path, key in COURSE_RESOURCES.values():
-        course = course_code(g("/" + "/".join(path), key))
+    for ks in KIND_SPECS.values():
+        course = course_code(g(ks.course_href, ks.course_key))
         if course:
             break
 
-    wrinkle = g("/washer/vs/0", "x.com.samsung.da.wrinklePrevent")
+    kids = g("/kidslock/vs/0", "x.com.samsung.da.kidsLock")
 
     return ApplianceState(
         power=_s(g("/power/vs/0", "x.com.samsung.da.power")),
         machine_state=_s(g("/operational/state/vs/0", "x.com.samsung.da.state")),
         progress=_s(g("/operational/state/vs/0", "x.com.samsung.da.progress")),
         progress_pct=pct,
-        remaining_s=parse_hms(g("/operational/state/vs/0",
-                                "x.com.samsung.da.remainingTime")),
-        delay_end_s=parse_hms(g("/operational/state/vs/0",
-                                "x.com.samsung.da.delayEndTime")),
+        remaining_s=parse_hms(g("/operational/state/vs/0", "x.com.samsung.da.remainingTime")),
+        delay_end_s=parse_hms(g("/operational/state/vs/0", "x.com.samsung.da.delayEndTime")),
         course=course,
         water_temp=_s(g("/washer/vs/0", "x.com.samsung.da.waterTemperature")),
         spin=_s(g("/washer/vs/0", "x.com.samsung.da.spinLevel")),
         rinse=_s(g("/washer/vs/0", "x.com.samsung.da.rinseCycles")),
         dry_level=_s(g("/washer/vs/0", "x.com.samsung.da.dryLevel")),
         dry_time_s=parse_hms(g("/washer/vs/0", "x.com.samsung.da.dryTime")),
-        wrinkle_prevent=None if wrinkle is None else _to_bool(wrinkle),
-        remote_control=_to_bool(g("/remotectrl/vs/0",
-                                  "x.com.samsung.da.remoteControlEnabled")),
+        wrinkle_prevent=_to_bool(g("/washer/vs/0", "x.com.samsung.da.wrinklePrevent")),
+        remote_control=_to_bool(g("/remotectrl/vs/0", "x.com.samsung.da.remoteControlEnabled")),
         # Samsung reports 'Ready' when the lock is off; anything else is on.
-        child_lock=(None if g("/kidslock/vs/0", "x.com.samsung.da.kidsLock") is None
-                    else g("/kidslock/vs/0", "x.com.samsung.da.kidsLock") != "Ready"),
-        alarms=_flatten_alarms(links.get("/alarms/vs/0")),
-        job_begin_status=_s(g("/wm/jobbeginingstatus/vs/0",
-                              "x.com.samsung.da.currentStatus")),
+        child_lock=None if kids is None else kids != "Ready",
+        alarms=_flatten_alarms(links.get(ALARMS_HREF)),
+        job_begin_status=_s(g("/wm/jobbeginingstatus/vs/0", "x.com.samsung.da.currentStatus")),
         energy_wh=wh,
     )
 

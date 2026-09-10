@@ -5,12 +5,22 @@ certs/
 *.csr
 *.srl
 .env
+.env.*
+!.env.example
 
-# Python
+# Runtime state (docker-compose.dev.yml mounts ./data)
+data/
+
+# Python / tooling
 __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 *.egg-info/
 dist/
 build/
+
+# OS
+.DS_Store

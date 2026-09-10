@@ -1,4 +1,4 @@
-from smartthings_pushover import appliance as washer
+from smartthings_pushover import appliance
 
 # Trimmed from a real /device/0 read of a WW80CGC04DAEEU (DA_WM_TP1_21_COMMON).
 IDLE_LINKS = {
@@ -39,7 +39,7 @@ def with_state(links, state, progress="None", remaining="02:36:00", **extra):
 
 
 def test_flatten_idle():
-    s = washer.flatten(IDLE_LINKS)
+    s = appliance.flatten(IDLE_LINKS)
     assert s.power == "Off"
     assert s.machine_state == "Ready"
     assert s.progress == "None"
@@ -58,16 +58,16 @@ def test_flatten_idle():
 
 def test_flatten_running_and_active_hook():
     links = with_state(IDLE_LINKS, "Run", "Wash", "01:10:00")
-    s = washer.flatten(links)
+    s = appliance.flatten(links)
     assert s.running and s.in_cycle and not s.finished
-    assert washer.is_active(links)
-    assert not washer.is_active(IDLE_LINKS)
+    assert appliance.is_active(links)
+    assert not appliance.is_active(IDLE_LINKS)
 
 
 def test_flatten_tolerates_missing_and_garbage():
-    s = washer.flatten({})
-    assert s == washer.ApplianceState()
-    s = washer.flatten({"/operational/state/vs/0": {
+    s = appliance.flatten({})
+    assert s == appliance.ApplianceState()
+    s = appliance.flatten({"/operational/state/vs/0": {
         "x.com.samsung.da.progressPercentage": "abc",
         "x.com.samsung.da.remainingTime": "soon"}})
     assert s.progress_pct is None and s.remaining_s is None
@@ -80,25 +80,25 @@ def test_alarms_flatten_sorted_and_stripped():
                                     "x.com.samsung.da.alarmType": "Water"}],
         "x.com.samsung.da.count": 1,
     }
-    s = washer.flatten(links)
+    s = appliance.flatten(links)
     assert s.alarms == (("count", "1"),
                         ("items", "{code=4C, alarmType=Water}"))
 
 
 def test_course_code_shapes():
-    assert washer.course_code("Table_02_Course_1C") == "1C"
-    assert washer.course_code("Course_1b") == "1B"
-    assert washer.course_code("Cotton") == "Cotton"
-    assert washer.course_code(None) is None
-    assert washer.course_code("") is None
+    assert appliance.course_code("Table_02_Course_1C") == "1C"
+    assert appliance.course_code("Course_1b") == "1B"
+    assert appliance.course_code("Cotton") == "Cotton"
+    assert appliance.course_code(None) is None
+    assert appliance.course_code("") is None
 
 
 def test_poll_tiers_use_vendor_paths_only():
-    tiers = washer.poll_tiers("washer")
+    tiers = appliance.poll_tiers("washer")
     for t in tiers:
         for p in t.paths:
-            assert p == washer.SEED_PATH or p[-2:] == ("vs", "0"), p
-    for p in washer.observe_paths("washer"):
+            assert p == appliance.SEED_PATH or p[-2:] == ("vs", "0"), p
+    for p in appliance.observe_paths("washer"):
         assert p[-2:] == ("vs", "0"), p
 
 
@@ -112,26 +112,26 @@ SUPPORTED_OPTIONS_BLOB = (
 def test_supported_course_codes():
     links = {"/course/vs/0": {
         "x.com.samsung.da.supportedOptions": [SUPPORTED_OPTIONS_BLOB]}}
-    assert washer.supported_course_codes(links) == [
+    assert appliance.supported_course_codes(links) == [
         "1C", "1B", "25", "20", "08", "74", "87", "06", "7F", "65", "8F",
         "96", "34", "A0"]
     # plain string works too; header digit is the per-record field count
-    assert washer.supported_course_codes(
+    assert appliance.supported_course_codes(
         {"/course/vs/0": {"x.com.samsung.da.supportedOptions":
                           SUPPORTED_OPTIONS_BLOB[:15]}}) == ["1C"]
-    assert washer.supported_course_codes(
+    assert appliance.supported_course_codes(
         {"/course/vs/0": {"x.com.samsung.da.supportedOptions":
                           "1" + "1C8410" + "1B8000"}}) == ["1C", "1B"]
 
 
 def test_supported_course_codes_bad_shapes():
-    assert washer.supported_course_codes({}) == []
-    assert washer.supported_course_codes({"/course/vs/0": {}}) == []
-    assert washer.supported_course_codes(
+    assert appliance.supported_course_codes({}) == []
+    assert appliance.supported_course_codes({"/course/vs/0": {}}) == []
+    assert appliance.supported_course_codes(
         {"/course/vs/0": {"x.com.samsung.da.supportedOptions": ["zz"]}}) == []
-    assert washer.supported_course_codes(
+    assert appliance.supported_course_codes(
         {"/course/vs/0": {"x.com.samsung.da.supportedOptions": ["31C8410923FA6"]}}) == []
-    assert washer.supported_course_codes(
+    assert appliance.supported_course_codes(
         {"/course/vs/0": {"x.com.samsung.da.supportedOptions": ["0"]}}) == []
 
 
@@ -169,7 +169,7 @@ DRYER_LINKS = {
 
 
 def test_flatten_dryer():
-    s = washer.flatten(DRYER_LINKS)
+    s = appliance.flatten(DRYER_LINKS)
     assert s.course == "16"
     assert s.dry_level == "Normal" and s.dry_time_s == 0
     assert s.wrinkle_prevent is False
@@ -180,16 +180,38 @@ def test_flatten_dryer():
 
 
 def test_dryer_course_codes():
-    assert washer.supported_course_codes(DRYER_LINKS) == [
+    assert appliance.supported_course_codes(DRYER_LINKS) == [
         "16", "1F", "19", "20", "1A", "1D", "1B", "1E", "43", "24", "25", "27",
         "23", "18"]
 
 
 def test_paths_per_kind():
-    assert ("st", "dryercourse", "vs", "0") in washer.observe_paths("dryer")
-    assert ("st", "washercourse", "vs", "0") not in washer.observe_paths("dryer")
-    assert ("st", "washercourse", "vs", "0") in washer.warm_paths("washer")
-    for kind in washer.KINDS:
-        for tier in washer.poll_tiers(kind):
+    assert ("st", "dryercourse", "vs", "0") in appliance.observe_paths("dryer")
+    assert ("st", "washercourse", "vs", "0") not in appliance.observe_paths("dryer")
+    assert ("st", "washercourse", "vs", "0") in appliance.warm_paths("washer")
+    for kind in appliance.KINDS:
+        for tier in appliance.poll_tiers(kind):
             for path in tier.paths:
-                assert path[-2:] == ("vs", "0") or path == washer.SEED_PATH
+                assert path[-2:] == ("vs", "0") or path == appliance.SEED_PATH
+
+
+def test_to_bool_rejects_garbage():
+    assert appliance._to_bool("true") is True and appliance._to_bool("Off") is False
+    assert appliance._to_bool("maybe") is None and appliance._to_bool(None) is None
+
+
+def test_delay_waiting():
+    # As captured on the WW80: Run, progress None, remaining == delayEnd.
+    S = appliance.ApplianceState
+    assert S(machine_state="Run", progress="None", remaining_s=14400, delay_end_s=14400).delay_waiting
+    assert S(machine_state="Run", progress="Delaywash", remaining_s=14400, delay_end_s=14400).delay_waiting
+    # Normal start: delayEnd 00:00:00.
+    assert not S(machine_state="Run", progress="None", remaining_s=1200, delay_end_s=0).delay_waiting
+    # Delay armed but not started, or the wait is over and washing has begun.
+    assert not S(machine_state="Ready", progress="None", remaining_s=14400, delay_end_s=14400).delay_waiting
+    assert not S(machine_state="Run", progress="Wash", remaining_s=9000, delay_end_s=9000).delay_waiting
+
+
+def test_kind_registry_drives_paths():
+    for kind in appliance.KINDS:
+        assert appliance.warm_paths(kind)[-1] == appliance.observe_paths(kind)[-2]

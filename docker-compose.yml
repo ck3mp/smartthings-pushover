@@ -24,6 +24,9 @@ services:
     volumes:
       # <-- change the left side to where the certs live on your NAS
       - /volume1/docker/smartthings-pushover/certs:/config:ro
+      # Cycle tracker state (so "Finished after 1h 12m" survives a restart).
+      # The container runs as uid 1000; make the directory writable by it.
+      - /volume1/docker/smartthings-pushover/data:/data
 
     environment:
       # ---- Appliances -----------------------------------------------
@@ -31,11 +34,11 @@ services:
       # At least one must be enabled. Only one client may talk to an
       # appliance at a time, so never run two bridges against the same IP.
       WASHER_ENABLED: ""              # blank = on if WASHER_IP set; "false" to skip
-      WASHER_IP: "192.168.1.40"
+      WASHER_IP: "192.168.1.252"
       WASHER_PORT: ""                 # blank = auto-discover (WW80 uses 49154)
       WASHER_NAME: "Washing machine"  # title of every washer notification
       # Course code -> name. --dump lists every code the appliance knows:
-      #   docker compose run --rm smartthings-pushover python -m smartthings_pushover --dump washer
+      #   docker compose run --rm smartthings-pushover smartthings-pushover --dump washer
       WASHER_COURSE_NAMES: "1C=Eco 40-60,1B=Cotton,25=Synthetics,20=Hygiene Steam,08=Rinse+Spin,74=Drum Clean,87=Downloaded,06=Bedding,7F=Wool/Delicates,65=Colours,8F=Intense Cold,96=Less Microfiber,34=Mixed Load,A0=Quick Wash 15'"
       WASHER_DTLS_LOCAL_PORT: "49700" # fixed local UDP port; "random" to let the OS pick
 
@@ -47,6 +50,7 @@ services:
       DRYER_DTLS_LOCAL_PORT: "49701"  # must differ from the washer's
 
       # ---- Pushover (required) --------------------------------------
+      # Or use PUSHOVER_TOKEN_FILE / PUSHOVER_USER_FILE with Docker secrets.
       PUSHOVER_TOKEN: ""              # application API token
       PUSHOVER_USER: ""               # user or group key
       PUSHOVER_DEVICE: ""             # optional: deliver to one device only
@@ -56,18 +60,21 @@ services:
       PUSHOVER_ALARM_PRIORITY: "1"    # priority for alarm/error messages
 
       # ---- Events -------------------------------------------------------
-      # Comma-separated, or "all". Blank = cycle_started,cycle_finished,
-      # cycle_paused,cycle_cancelled,alarm. Available: cycle_started,
-      # cycle_finished, cycle_paused, cycle_resumed, cycle_cancelled,
-      # phase_changed, alarm, power_on, power_off, remote_control,
-      # child_lock, offline, online
+      # Comma-separated, or "all". Blank = cycle_scheduled,cycle_started,
+      # cycle_finished,cycle_paused,cycle_cancelled,alarm. Available:
+      # cycle_scheduled, cycle_started, cycle_finished, cycle_paused,
+      # cycle_resumed, cycle_cancelled, phase_changed, alarm, power_on,
+      # power_off, remote_control, child_lock, offline, online, startup
       EVENTS: ""
-      STARTUP_NOTIFY: "true"         # one message per appliance when the bridge first connects
+      STARTUP_NOTIFY: "false"         # "true" adds the startup event
+      EVENT_PRIORITIES: ""            # e.g. cycle_finished=1,phase_changed=-1
+      QUIET_HOURS: ""                 # e.g. 22:00-07:00 (local time, see TZ)
+      QUIET_PRIORITY: "-1"            # priority cap inside quiet hours (alarms exempt)
+      ALARM_REPEAT_S: "600"           # same alarm at most once per 10 min; 0 = off
       OFFLINE_AFTER_S: "900"          # unreachable this long -> "offline" event
 
       # ---- Tuning (defaults are fine) -------------------------------------
-      CERT_PATH: "/config/client_fullchain.pem"
-      KEY_PATH: "/config/client.key"
+      TZ: "Europe/London"             # for QUIET_HOURS and log timestamps
       LOG_LEVEL: "INFO"               # DEBUG shows every OBSERVE push and poll
       HEALTH_INTERVAL_S: "300"        # health log line cadence
       HOT_POLL_S: "2"                 # state poll interval while idle

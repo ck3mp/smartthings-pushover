@@ -3,4 +3,10 @@
 Talks to the appliance directly over CoAP-DTLS on the LAN using the
 smartthings-local library; no SmartThings cloud, no MQTT broker.
 """
-__version__ = "0.2.0"
+
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("smartthings-pushover")
+except PackageNotFoundError:  # running from a source checkout without install
+    __version__ = "0.0.0+unknown"

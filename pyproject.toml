@@ -1,0 +1,63 @@
+[project]
+name = "smartthings-pushover"
+version = "0.3.0"
+description = "Forward Samsung washer and dryer state changes to Pushover over local CoAP-DTLS."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [{ name = "Chris" }]
+dependencies = [
+    # The DTLS/CoAP transport + polling layer. 0.1.16 is the first release
+    # with the ObserveDelivery callback and the concurrent port probe.
+    "smartthings-local>=0.1.16,<0.2",
+    "cbor2>=5.6",
+    # 23.x added set_ciphertext_mtu, which the DTLS handshake needs so the
+    # client cert fits in one datagram (TizenRT drops the second fragment).
+    "pyOpenSSL>=23.1",
+]
+
+[project.scripts]
+smartthings-pushover = "smartthings_pushover.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.0,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "smartthings_pushover"
+module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "BLE", "SIM", "RUF"]
+ignore = [
+    "RUF012",  # mutable class attributes; dataclasses handle this
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+no_implicit_optional = true
+check_untyped_defs = true
+ignore_missing_imports = true
+packages = ["smartthings_pushover"]

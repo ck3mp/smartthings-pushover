@@ -13,5 +13,7 @@ services:
     volumes:
       # Directory containing client_fullchain.pem + client.key
       - ${CERT_DIR:-./certs}:/config:ro
+      # Persisted cycle trackers (git-ignored). Must be writable by uid 1000.
+      - ${DATA_DIR:-./data}:/data
     env_file:
       - .env
