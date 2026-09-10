@@ -1,6 +1,5 @@
 # Deployment with the published image (no build step).
 #
-#   docker login ghcr.io               # only if the package is private
 #   docker compose pull && docker compose up -d
 #   docker compose logs -f
 #

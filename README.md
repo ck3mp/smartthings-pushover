@@ -15,6 +15,34 @@ library and was written and tested against a **WW80CGC04DAEEU** washer and a
 laundry appliance on the same firmware family that accepts the client
 certificate below should work; the same certificate works for both machines.
 
+## Quick start
+
+You need Docker on a machine on the same LAN as the appliances, a Pushover
+application token and user key, and the client certificate pair from
+[step 1](#1-mint-a-client-certificate-once) (`client_fullchain.pem` and
+`client.key`). Then:
+
+```sh
+mkdir -p smartthings-pushover/certs smartthings-pushover/data
+cd smartthings-pushover
+cp /path/to/client_fullchain.pem /path/to/client.key certs/
+chown 1000:1000 data
+curl -fsSLO https://raw.githubusercontent.com/ck3mp/smartthings-pushover/main/docker-compose.yml
+```
+
+Open `docker-compose.yml` and set `WASHER_IP` and/or `DRYER_IP`,
+`PUSHOVER_TOKEN` and `PUSHOVER_USER`. Leave everything else as it is. Then:
+
+```sh
+docker compose up -d
+docker compose logs -f
+```
+
+Within a few seconds each appliance should log `DTLS connected` and
+`seeded`. Start a cycle and your phone gets "Cycle started"; when it ends,
+"Laundry is done". The rest of this document explains the certificate,
+every setting, and what to expect from the machines.
+
 ## What you need
 
 - A Docker host on the same LAN as the appliances (a NAS, a Raspberry Pi,
@@ -71,14 +99,7 @@ On the Docker host:
    sensible default. The course-name lists shipped in the file are correct
    for the two tested models.
 
-3. If the package is private, log in once with a GitHub personal access
-   token that has the `read:packages` scope:
-
-   ```sh
-   docker login ghcr.io
-   ```
-
-4. Start it and watch the first connection:
+3. Start it and watch the first connection:
 
    ```sh
    docker compose pull
@@ -106,7 +127,7 @@ On the Docker host:
    A health line per appliance follows every five minutes with connection,
    poll and notification counters.
 
-5. Check Pushover end to end:
+4. Check Pushover end to end:
 
    ```sh
    docker compose run --rm smartthings-pushover smartthings-pushover --test-notify
