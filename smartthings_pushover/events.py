@@ -123,7 +123,7 @@ def fmt_duration(seconds: int | float | None) -> str | None:
         return f"{h}h"
     if m:
         return f"{m}m"
-    return "under 1m" if seconds else "0m"
+    return "Under 1m" if seconds else "0m"
 
 
 def fmt_clock(epoch: float, tz: tzinfo | None = None) -> str:

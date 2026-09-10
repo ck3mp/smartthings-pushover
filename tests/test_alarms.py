@@ -36,7 +36,7 @@ def test_unknown_code_and_no_code():
     assert alarm_fields((("items", "{code=ZZ9}"),)) == (
         ("Status", "Error"),
         ("Code", "ZZ9"),
-        ("Meaning", "Not in the code table; check the panel"),
+        ("Meaning", "Not in the code table: check the panel"),
     )
     assert alarm_fields((("count", "1"),)) == (("Status", "Error"), ("Details", "count: 1"))
 

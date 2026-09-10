@@ -16,53 +16,54 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, tzinfo
 
 # Front-panel error codes shared by Samsung washer / dryer firmware.
-# Manual wording, lightly shortened. Keys are upper-case.
+# Manual wording, lightly shortened, in sentence case as it appears in
+# the notification's Meaning field. Keys are upper-case.
 ALARM_CODES: dict[str, str] = {
     # water
-    "4C": "water supply problem: check the tap and inlet hose",
-    "4E": "water supply problem: check the tap and inlet hose",
-    "4C2": "hot water connected to the cold inlet",
-    "5C": "drain problem: check the drain hose and pump filter",
-    "5E": "drain problem: check the drain hose and pump filter",
-    "1C": "water level sensor fault",
-    "1E": "water level sensor fault",
-    "OC": "overflow: water level too high",
-    "OE": "overflow: water level too high",
-    "LC": "water leak detected",
-    "LE": "water leak detected",
-    "LC1": "water leak detected",
+    "4C": "Water supply problem: check the tap and inlet hose",
+    "4E": "Water supply problem: check the tap and inlet hose",
+    "4C2": "Hot water connected to the cold inlet",
+    "5C": "Drain problem: check the drain hose and pump filter",
+    "5E": "Drain problem: check the drain hose and pump filter",
+    "1C": "Water level sensor fault",
+    "1E": "Water level sensor fault",
+    "OC": "Overflow: water level too high",
+    "OE": "Overflow: water level too high",
+    "LC": "Water leak detected",
+    "LE": "Water leak detected",
+    "LC1": "Water leak detected",
     # door / load
-    "DC": "door open or not latched",
-    "DE": "door open or not latched",
-    "DC1": "door lock fault",
-    "DDC": "add-door open during cycle",
-    "UB": "unbalanced load: redistribute the laundry",
-    "UE": "unbalanced load: redistribute the laundry",
-    "SUD": "too much foam: use less detergent",
-    "SD": "too much foam: use less detergent",
-    "5D": "too much foam: use less detergent",
+    "DC": "Door open or not latched",
+    "DE": "Door open or not latched",
+    "DC1": "Door lock fault",
+    "DDC": "Add-door open during cycle",
+    "UB": "Unbalanced load: redistribute the laundry",
+    "UE": "Unbalanced load: redistribute the laundry",
+    "SUD": "Too much foam: use less detergent",
+    "SD": "Too much foam: use less detergent",
+    "5D": "Too much foam: use less detergent",
     # heating / sensors / motor
-    "HC": "heater fault",
-    "HE": "heater fault",
-    "HC1": "heater fault",
-    "TC": "temperature sensor fault",
-    "TE": "temperature sensor fault",
-    "TC5": "temperature sensor fault",
-    "3C": "motor fault: try restarting the cycle",
-    "3E": "motor fault: try restarting the cycle",
-    "8C": "vibration sensor fault",
-    "AC": "internal communication fault",
-    "AE": "internal communication fault",
-    "AC6": "internal communication fault",
-    "PC": "power supply fault",
-    "9C": "power supply fault",
-    "UC": "voltage out of range",
+    "HC": "Heater fault",
+    "HE": "Heater fault",
+    "HC1": "Heater fault",
+    "TC": "Temperature sensor fault",
+    "TE": "Temperature sensor fault",
+    "TC5": "Temperature sensor fault",
+    "3C": "Motor fault: try restarting the cycle",
+    "3E": "Motor fault: try restarting the cycle",
+    "8C": "Vibration sensor fault",
+    "AC": "Internal communication fault",
+    "AE": "Internal communication fault",
+    "AC6": "Internal communication fault",
+    "PC": "Power supply fault",
+    "9C": "Power supply fault",
+    "UC": "Voltage out of range",
     # dryer-specific
-    "HOT": "dryer too hot: check the lint filter and exhaust",
-    "FC": "dryer fan fault",
-    "FE": "dryer fan fault",
-    "CLOGGED": "exhaust blocked: clean the lint filter and duct",
-    "FILTER": "clean the lint filter",
+    "HOT": "Dryer too hot: check the lint filter and exhaust",
+    "FC": "Dryer fan fault",
+    "FE": "Dryer fan fault",
+    "CLOGGED": "Exhaust blocked: clean the lint filter and duct",
+    "FILTER": "Clean the lint filter",
 }
 
 # Captured on the WW80 with the door open at Start:
@@ -92,6 +93,8 @@ def throttle_key(alarms: Iterable[tuple[str, str]]) -> str:
     return ",".join(codes) if codes else "\n".join(f"{k}: {v}" for k, v in pairs)
 
 
+UNKNOWN_CODE = "Not in the code table: check the panel"
+
 _TRIGGERED_RE = re.compile(r"\btriggeredTime=(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})")
 
 
@@ -107,8 +110,7 @@ def alarm_fields(
     codes = codes_in(pairs)
     for code in codes:
         out.append(("Code", code))
-        meaning = ALARM_CODES.get(code, "not in the code table; check the panel")
-        out.append(("Meaning", meaning[0].upper() + meaning[1:]))
+        out.append(("Meaning", ALARM_CODES.get(code, UNKNOWN_CODE)))
     for _key, value in pairs:
         m = _TRIGGERED_RE.search(value)
         if m:
@@ -117,7 +119,7 @@ def alarm_fields(
             out.append(("Raised", local.strftime("%H:%M")))
             break
     if not codes:
-        out.append(("Details", "; ".join(f"{k}: {v}" for k, v in pairs) or "none"))
+        out.append(("Details", "; ".join(f"{k}: {v}" for k, v in pairs) or "None"))
     return tuple(out)
 
 

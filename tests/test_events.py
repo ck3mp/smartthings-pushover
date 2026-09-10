@@ -325,7 +325,7 @@ def test_remaining_time_ticks_do_not_emit():
 def test_fmt_duration():
     assert fmt_duration(None) is None
     assert fmt_duration(0) == "0m"
-    assert fmt_duration(59) == "under 1m"
+    assert fmt_duration(59) == "Under 1m"
     assert fmt_duration(60) == "1m"
     assert fmt_duration(3600) == "1h"
     assert fmt_duration(3600 + 5 * 60) == "1h 05m"

@@ -317,7 +317,7 @@ class ApplianceBridge:
                     self.app.name,
                     fields(
                         ("Status", "Bridge Started"),
-                        ("Appliance State", state.machine_state or "unknown"),
+                        ("Appliance State", state.machine_state or "Unknown"),
                     ),
                 )
             )
