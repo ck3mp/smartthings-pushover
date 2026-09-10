@@ -541,7 +541,7 @@ wheels = [
 
 [[package]]
 name = "smartthings-pushover"
-version = "0.3.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "cbor2" },

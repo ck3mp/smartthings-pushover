@@ -1,12 +1,14 @@
-# NAS deployment: pulls the published image, no build step.
+# Deployment with the published image (no build step).
 #
-#   docker login ghcr.io -u ck3mp      # once; PAT with read:packages (private repo)
+#   docker login ghcr.io               # only if the package is private
 #   docker compose pull && docker compose up -d
 #   docker compose logs -f
 #
-# Fill in the environment block below (or leave a value blank to use the
-# default shown in the comment). Mount the directory holding
-# client_fullchain.pem + client.key from SmartThings-Local's setup_cert.py.
+# Put this file in a directory with two subdirectories:
+#   certs/   client_fullchain.pem + client.key from SmartThings-Local's setup_cert.py
+#   data/    runtime state; must be writable by uid 1000 (chown 1000:1000 data)
+# Then fill in the environment block below (blank = use the default shown
+# in the comment).
 
 services:
   smartthings-pushover:
@@ -18,15 +20,12 @@ services:
     # appliances and binds a fixed local port per appliance
     # (*_DTLS_LOCAL_PORT) so a restart re-handshakes from the same address
     # and the appliance drops its stale session instead of ignoring us for
-    # 5-15 min. Nothing is exposed inbound.
+    # several minutes. Nothing is exposed inbound.
     network_mode: host
 
     volumes:
-      # <-- change the left side to where the certs live on your NAS
-      - /volume1/docker/smartthings-pushover/certs:/config:ro
-      # Cycle tracker state (so "Finished after 1h 12m" survives a restart).
-      # The container runs as uid 1000; make the directory writable by it.
-      - /volume1/docker/smartthings-pushover/data:/data
+      - ./certs:/config:ro
+      - ./data:/data
 
     environment:
       # ---- Appliances -----------------------------------------------
@@ -34,18 +33,20 @@ services:
       # At least one must be enabled. Only one client may talk to an
       # appliance at a time, so never run two bridges against the same IP.
       WASHER_ENABLED: ""              # blank = on if WASHER_IP set; "false" to skip
-      WASHER_IP: "192.168.1.252"
-      WASHER_PORT: ""                 # blank = auto-discover (WW80 uses 49154)
+      WASHER_IP: "192.168.1.50"
+      WASHER_PORT: ""                 # blank = auto-discover (the WW80 uses 49154)
       WASHER_NAME: "Washing machine"  # title of every washer notification
-      # Course code -> name. --dump lists every code the appliance knows:
+      # Course code -> name. This list is correct for the WW80CGC04DAEEU;
+      # for another model, --dump lists every code the appliance knows:
       #   docker compose run --rm smartthings-pushover smartthings-pushover --dump washer
       WASHER_COURSE_NAMES: "1C=Eco 40-60,1B=Cotton,25=Synthetics,20=Hygiene Steam,08=Rinse+Spin,74=Drum Clean,87=Downloaded,06=Bedding,7F=Wool/Delicates,65=Colours,8F=Intense Cold,96=Less Microfiber,34=Mixed Load,A0=Quick Wash 15'"
       WASHER_DTLS_LOCAL_PORT: "49700" # fixed local UDP port; "random" to let the OS pick
 
       DRYER_ENABLED: ""               # blank = on if DRYER_IP set; "false" to skip
-      DRYER_IP: "192.168.1.253"
-      DRYER_PORT: ""                  # blank = auto-discover (DV80 uses 49154)
+      DRYER_IP: "192.168.1.51"
+      DRYER_PORT: ""                  # blank = auto-discover (the DV80 uses 49154)
       DRYER_NAME: "Tumble dryer"
+      # Correct for the DV80CGC0B0AEEU.
       DRYER_COURSE_NAMES: "16=Cotton,18=Synthetics,1F=Mixed Load,19=Delicates,20=Iron Dry,1A=Wool,1D=Towels,1B=Bedding,1E=Outdoor,43=Downloaded,23=Quick Dry 35',27=Time Dry,25=Warm Air,24=Cool Air"
       DRYER_DTLS_LOCAL_PORT: "49701"  # must differ from the washer's
 
@@ -74,7 +75,7 @@ services:
       OFFLINE_AFTER_S: "900"          # unreachable this long -> "offline" event
 
       # ---- Tuning (defaults are fine) -------------------------------------
-      TZ: "Europe/London"             # for QUIET_HOURS and log timestamps
+      TZ: "Europe/London"             # your zone; used by QUIET_HOURS and log timestamps
       LOG_LEVEL: "INFO"               # DEBUG shows every OBSERVE push and poll
       HEALTH_INTERVAL_S: "300"        # health log line cadence
       HOT_POLL_S: "2"                 # state poll interval while idle

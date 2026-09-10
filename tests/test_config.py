@@ -15,8 +15,8 @@ from smartthings_pushover.config import (
     parse_quiet_hours,
 )
 
-REQUIRED = {"WASHER_IP": "192.168.1.40", "PUSHOVER_TOKEN": "t", "PUSHOVER_USER": "u"}
-PREFIXES = ("WASHER_", "DRYER_", "PUSHOVER_", "COURSE_NAMES", "DTLS_LOCAL_PORT", "EVENTS",
+REQUIRED = {"WASHER_IP": "192.168.1.50", "PUSHOVER_TOKEN": "t", "PUSHOVER_USER": "u"}
+PREFIXES = ("WASHER_", "DRYER_", "PUSHOVER_", "EVENTS",
             "EVENT_PRIORITIES", "QUIET_", "STARTUP_NOTIFY", "OFFLINE_AFTER_S", "HEALTH_INTERVAL_S",
             "PING_INTERVAL_S", "HOT_POLL", "LOG_LEVEL", "CERT_PATH", "KEY_PATH", "STATE_DIR",
             "HEARTBEAT_PATH", "ALARM_REPEAT_S")
@@ -36,7 +36,7 @@ def test_defaults(env):
     cfg = Config.from_env()
     assert [a.kind for a in cfg.appliances] == ["washer"]
     w = cfg.appliance("washer")
-    assert w.ip == "192.168.1.40" and w.port is None
+    assert w.ip == "192.168.1.50" and w.port is None
     assert w.name == "Washing machine"
     assert w.dtls_local_port == 49700
     assert cfg.appliance("dryer") is None
@@ -59,7 +59,7 @@ def test_blank_port_means_auto(env):
 
 
 def test_dryer_enabled_by_ip(env):
-    env.setenv("DRYER_IP", "192.168.1.253")
+    env.setenv("DRYER_IP", "192.168.1.51")
     env.setenv("DRYER_COURSE_NAMES", "16=Cotton")
     cfg = Config.from_env()
     assert [a.kind for a in cfg.appliances] == ["washer", "dryer"]
@@ -71,7 +71,7 @@ def test_dryer_enabled_by_ip(env):
 
 
 def test_enabled_flags(env):
-    env.setenv("DRYER_IP", "192.168.1.253")
+    env.setenv("DRYER_IP", "192.168.1.51")
     env.setenv("WASHER_ENABLED", "false")
     cfg = Config.from_env()
     assert [a.kind for a in cfg.appliances] == ["dryer"]
@@ -109,18 +109,8 @@ def test_secrets_from_files(env, tmp_path):
         Config.from_env()
 
 
-def test_legacy_washer_vars(env):
-    env.setenv("COURSE_NAMES", "1C=Eco 40-60")
-    env.setenv("DTLS_LOCAL_PORT", "49710")
-    w = Config.from_env().appliance("washer")
-    assert w.course_names == {"1C": "Eco 40-60"}
-    assert w.dtls_local_port == 49710
-    env.setenv("WASHER_COURSE_NAMES", "1B=Cotton")  # new name wins
-    assert Config.from_env().appliance("washer").course_names == {"1B": "Cotton"}
-
-
 def test_local_ports_must_differ(env):
-    env.setenv("DRYER_IP", "192.168.1.253")
+    env.setenv("DRYER_IP", "192.168.1.51")
     env.setenv("DRYER_DTLS_LOCAL_PORT", "49700")
     with pytest.raises(ConfigError, match="must differ"):
         Config.from_env()

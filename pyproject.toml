@@ -1,11 +1,11 @@
 [project]
 name = "smartthings-pushover"
-version = "0.3.0"
+version = "1.0.0"
 description = "Forward Samsung washer and dryer state changes to Pushover over local CoAP-DTLS."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
-authors = [{ name = "Chris" }]
+authors = [{ name = "ck3mp" }]
 dependencies = [
     # The DTLS/CoAP transport + polling layer. 0.1.16 is the first release
     # with the ObserveDelivery callback and the concurrent port probe.

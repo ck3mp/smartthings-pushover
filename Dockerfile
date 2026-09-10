@@ -55,8 +55,9 @@ USER app
 WORKDIR /app
 
 # Outbound only: DTLS/UDP to the appliances, HTTPS to api.pushover.net.
-# No ports exposed. Needs host networking (or a macvlan) if your NAS's
-# bridge network can't reach the appliance's LAN segment.
+# No ports exposed. Run with host networking (or a macvlan) so the
+# container can reach the appliances' LAN segment and keep a stable
+# local UDP port.
 
 # Healthy = the main loop is still ticking. An unreachable appliance is
 # *not* unhealthy (the bridge reconnects on its own); a wedged process is.

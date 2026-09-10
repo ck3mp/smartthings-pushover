@@ -317,27 +317,13 @@ class ApplianceConfig:
             raise ConfigError(f"{p}_ENABLED is true but {p}_IP is not set")
 
         courses_var = f"{p}_COURSE_NAMES"
-        courses_raw = _env(courses_var)
-        if courses_raw is None and kind == "washer":
-            courses_raw = _env("COURSE_NAMES")  # pre-dryer name
-            if courses_raw is not None:
-                courses_var = "COURSE_NAMES"
-
-        local_port_var = f"{p}_DTLS_LOCAL_PORT"
-        if (
-            _env(local_port_var) is None
-            and kind == "washer"
-            and _env("DTLS_LOCAL_PORT") is not None
-        ):
-            local_port_var = "DTLS_LOCAL_PORT"  # pre-dryer name
-
         return cls(
             kind=kind,
             ip=ip,
             port=_env_port(f"{p}_PORT", None),
             name=_env(f"{p}_NAME", ks.default_name) or ks.default_name,
-            course_names=MappingProxyType(parse_course_names(courses_raw, courses_var)),
-            dtls_local_port=_local_port(local_port_var, ks.default_local_port),
+            course_names=MappingProxyType(parse_course_names(_env(courses_var), courses_var)),
+            dtls_local_port=_local_port(f"{p}_DTLS_LOCAL_PORT", ks.default_local_port),
         )
 
 
