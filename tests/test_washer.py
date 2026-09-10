@@ -100,3 +100,36 @@ def test_poll_tiers_use_vendor_paths_only():
             assert p == washer.SEED_PATH or p[-2:] == ("vs", "0"), p
     for p in washer.OBSERVE_PATHS:
         assert p[-2:] == ("vs", "0"), p
+
+
+# Verbatim from /course/vs/0 on the WW80CGC04DAEEU (Table_02, 14 courses).
+SUPPORTED_OPTIONS_BLOB = (
+    "31C8410923FA67F1B847E923FA67F25843E933FA57F20857E943FA67F088000913FA67F"
+    "7485209204A5208780009000A00006841E930FA30F7F841E920FA30F65841E943FA57F"
+    "8F8102923FA57F96841E920FA37F34841E923FA67FA0811E933FA33F")
+
+
+def test_supported_course_codes():
+    links = {"/course/vs/0": {
+        "x.com.samsung.da.supportedOptions": [SUPPORTED_OPTIONS_BLOB]}}
+    assert washer.supported_course_codes(links) == [
+        "1C", "1B", "25", "20", "08", "74", "87", "06", "7F", "65", "8F",
+        "96", "34", "A0"]
+    # plain string works too; header digit is the per-record field count
+    assert washer.supported_course_codes(
+        {"/course/vs/0": {"x.com.samsung.da.supportedOptions":
+                          SUPPORTED_OPTIONS_BLOB[:15]}}) == ["1C"]
+    assert washer.supported_course_codes(
+        {"/course/vs/0": {"x.com.samsung.da.supportedOptions":
+                          "1" + "1C8410" + "1B8000"}}) == ["1C", "1B"]
+
+
+def test_supported_course_codes_bad_shapes():
+    assert washer.supported_course_codes({}) == []
+    assert washer.supported_course_codes({"/course/vs/0": {}}) == []
+    assert washer.supported_course_codes(
+        {"/course/vs/0": {"x.com.samsung.da.supportedOptions": ["zz"]}}) == []
+    assert washer.supported_course_codes(
+        {"/course/vs/0": {"x.com.samsung.da.supportedOptions": ["31C8410923FA6"]}}) == []
+    assert washer.supported_course_codes(
+        {"/course/vs/0": {"x.com.samsung.da.supportedOptions": ["0"]}}) == []

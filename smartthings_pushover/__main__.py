@@ -49,6 +49,7 @@ def _dump(cfg: Config) -> int:
     """Connect once, read /device/0, print the flattened state, exit.
     Handy for confirming certs/IP and for finding the course code that
     matches the dial position (see COURSE_NAMES)."""
+    from . import washer
     from .bridge import WasherBridge
 
     class _NullSender:
@@ -68,18 +69,49 @@ def _dump(cfg: Config) -> int:
         bridge._seed(sess)
     finally:
         sess.close()
-    state = bridge.current_state()
+    links = bridge.cache.snapshot()
+    state = washer.flatten(links)
     print()
     for k, v in state.__dict__.items():
         print(f"  {k:18} {v}")
     print(f"  {'remaining':18} {state.remaining_hms()}")
+    _print_courses(cfg, state, washer.supported_course_codes(links))
+    return 0
+
+
+def _print_courses(cfg: Config, state, codes: list[str]) -> None:
+    """The washer never sends course *names*, only the hex code of the
+    dial position, so the mapping has to be built by hand: turn the dial
+    to a programme, run --dump, note the code. This prints every code
+    the firmware advertises so you can see how many are still unnamed."""
     if state.course:
         label = cfg.course_names.get(state.course)
         print(f"\n  Current course code: {state.course}"
-              + (f" -> {label}" if label else
-                 "  (add to COURSE_NAMES, e.g. COURSE_NAMES=\""
-                 f"{state.course}=Cotton\")"))
-    return 0
+              + (f" -> {label}" if label else "  (unnamed)"))
+    if not codes:
+        if state.course and state.course not in cfg.course_names:
+            print("  add to COURSE_NAMES, e.g. "
+                  f"COURSE_NAMES=\"{state.course}=Cotton\"")
+        return
+    print(f"\n  Courses advertised by the washer ({len(codes)}):")
+    for code in codes:
+        mark = "*" if code == state.course else " "
+        label = cfg.course_names.get(code)
+        print(f"   {mark} {code}  {label if label else '(unnamed)'}")
+    unnamed = [c for c in codes if c not in cfg.course_names]
+    unknown = sorted(set(cfg.course_names) - set(codes))
+    if unnamed:
+        print(f"\n  {len(unnamed)} unnamed. Turn the dial to each, run --dump,"
+              " and add the code:")
+        print("    COURSE_NAMES=" + ",".join(
+            f"{c}={cfg.course_names[c]}" for c in codes if c in cfg.course_names)
+            + ("," if cfg.course_names else "")
+            + ",".join(f"{c}=..." for c in unnamed))
+    else:
+        print("\n  All courses named.")
+    if unknown:
+        print(f"  COURSE_NAMES has codes the washer does not advertise: "
+              f"{', '.join(unknown)}")
 
 
 def main(argv=None) -> int:

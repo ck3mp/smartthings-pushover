@@ -114,15 +114,28 @@ just not sent.
 ### Course names
 
 The washer reports the selected programme as a code such as
-`Table_02_Course_1C`. To show a name instead of "Course 1C", map the codes
-you use:
+`Table_02_Course_1C`. It never sends programme *names* - those live in
+the SmartThings app, not in the appliance - so the mapping has to be
+built by hand. To show a name instead of "Course 1C", map the codes:
 
 ```
-COURSE_NAMES=1C=Eco 40-60,1B=Cotton,1D=Quick Wash
+COURSE_NAMES=1C=Eco 40-60,1B=Cotton,74=Drum Clean
 ```
 
-Find the code for a dial position with `--dump` (below) while that
-programme is selected.
+`--dump` (below) lists every course code the firmware advertises, marks
+the one currently selected with `*`, and shows which codes are still
+unnamed. Turn the dial to a programme, run `--dump`, note the code, repeat
+for each position, then set `COURSE_NAMES`. The washer only allows one
+DTLS client at a time, so stop the bridge container while you do this.
+
+For the WW80CGC04DAEEU (course table `Table_02`) this mapping was derived
+from the firmware's per-course option table (allowed temperatures, spin,
+rinse, Bubble Soak and Prewash availability) cross-checked against the
+user manual, so it should be right, but confirm a code by dialing it:
+
+```
+COURSE_NAMES=1C=Eco 40-60,1B=Cotton,25=Synthetics,20=Hygiene Steam,08=Rinse+Spin,74=Drum Clean,87=Downloaded,06=Bedding,7F=Wool/Delicates,65=Colours,8F=Intense Cold,96=Less Microfiber,34=Mixed Load,A0=Quick Wash 15'
+```
 
 ## 3. Building locally instead
 
@@ -159,9 +172,13 @@ export CERT_PATH=certs/client_fullchain.pem KEY_PATH=certs/client.key
 # Does Pushover accept the token/user?
 python -m smartthings_pushover --test-notify
 
-# Can we reach the washer? Prints the flattened state and current course code.
+# Can we reach the washer? Prints the flattened state, the current course
+# code, and every course code the washer advertises (for COURSE_NAMES).
 python -m smartthings_pushover --dump
 ```
+
+When running `--dump` outside the container with `.env` sourced, override
+the container cert paths: `CERT_PATH=certs/client_fullchain.pem KEY_PATH=certs/client.key`.
 
 Inside the container: `docker compose run --rm smartthings-pushover python -m smartthings_pushover --dump`.
 The test-notify variant works the same way.

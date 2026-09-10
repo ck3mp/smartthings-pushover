@@ -117,6 +117,40 @@ def course_code(mode: str | None) -> str | None:
     return mode
 
 
+def supported_course_codes(links: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """Every course code the washer's firmware table advertises, in the
+    order the firmware lists them.
+
+    `/course/vs/0` carries `x.com.samsung.da.supportedOptions`: one hex
+    string laid out as the official SmartThings plugin parses it - a
+    header digit N (option fields per record), then one record per course
+    of two hex chars of course code followed by N four-char option fields
+    (temperature / rinse / spin defaults and allowed bitmaps). Only the
+    codes are meaningful to us; the fields are ignored. Returns [] if the
+    blob is missing or not in that shape.
+    """
+    rep = links.get("/course/vs/0") or {}
+    raw = rep.get("x.com.samsung.da.supportedOptions")
+    if isinstance(raw, (list, tuple)):
+        raw = "".join(str(x) for x in raw)
+    if not isinstance(raw, str):
+        return []
+    raw = raw.strip()
+    if len(raw) < 3 or not re.fullmatch(r"[0-9A-Fa-f]+", raw):
+        return []
+    nfields = int(raw[0], 16)
+    body = raw[1:]
+    rec = 2 + 4 * nfields
+    if nfields == 0 or len(body) % rec:
+        return []
+    codes: list[str] = []
+    for i in range(0, len(body), rec):
+        code = body[i:i + 2].upper()
+        if code not in codes:
+            codes.append(code)
+    return codes
+
+
 @dataclass(frozen=True)
 class WasherState:
     """Flattened, comparable snapshot of what we care about."""
