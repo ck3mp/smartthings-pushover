@@ -34,7 +34,7 @@ from smartthings_local.protocol.dtls_session import ConnectCancellation, DtlsCoa
 from . import appliance
 from .alarms import AlarmThrottle
 from .config import OCF_PORT_CANDIDATES, ApplianceConfig, Config
-from .events import CycleTracker, Event, detect, fields, fmt_duration
+from .events import CycleTracker, Event, detect, fmt_duration, make_fields
 from .health import Reachability
 from .persistence import TrackerStore
 from .pushover import Sender
@@ -140,10 +140,11 @@ class ApplianceBridge:
                 self._session_once()
                 backoff = 1.0
             except Exception as e:  # noqa: BLE001 - any session failure reconnects
-                self.error_count += 1
-                if not self.stop.is_set():
+                if not self.stop.is_set():  # a cancelled handshake is not an error
+                    self.error_count += 1
                     self.log.warning("session error: %s", e)
             self._close_session()
+            self._suppress_changes = False  # in case a seed never got to run
             self.reach.mark_down(time.time())
             if self.stop.is_set():
                 break
@@ -216,6 +217,11 @@ class ApplianceBridge:
             self.session = sess
         self.connect_count += 1
 
+        # Registration replies start landing on the reader thread as soon as
+        # we subscribe. Hold evaluation until the seed has the whole tree, or
+        # a fresh start mid-cycle diffs a partial baseline and announces a
+        # cycle (or re-announces a standing alarm). seed() lifts the hold.
+        self._suppress_changes = True
         for path in appliance.observe_paths(self.app.kind):
             sess.subscribe(list(path))
 
@@ -268,7 +274,6 @@ class ApplianceBridge:
             self.log.info("DTLS session ended")
         finally:
             keepalive.on_unreachable = None
-            keepalive.on_reachable = None
             session_stop.set()
             deadline = time.monotonic() + WORKER_JOIN_TIMEOUT_S
             for w in workers:
@@ -315,7 +320,7 @@ class ApplianceBridge:
                 Event(
                     "startup",
                     self.app.name,
-                    fields(
+                    make_fields(
                         ("Status", "Bridge Started"),
                         ("Appliance State", state.machine_state or "Unknown"),
                     ),
@@ -431,7 +436,7 @@ class ApplianceBridge:
                 Event(
                     "online",
                     self.app.name,
-                    fields(
+                    make_fields(
                         ("Status", "Reachable"),
                         ("Unreachable For", fmt_duration(outage) if outage else None),
                     ),
@@ -455,7 +460,7 @@ class ApplianceBridge:
                     Event(
                         "offline",
                         self.app.name,
-                        fields(
+                        make_fields(
                             ("Status", "Unreachable"),
                             ("Unreachable For", fmt_duration(self.cfg.offline_after_s)),
                         ),

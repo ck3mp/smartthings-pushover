@@ -26,7 +26,7 @@ from .kinds import spec
 Field = tuple[str, str]
 
 
-def fields(*pairs: tuple[str, str | None]) -> tuple[Field, ...]:
+def make_fields(*pairs: tuple[str, str | None]) -> tuple[Field, ...]:
     """Drop pairs whose value is None or empty, keep order."""
     return tuple((label, value) for label, value in pairs if value)
 
@@ -186,9 +186,9 @@ def detect(
     # ---- power ---------------------------------------------------------
     if was.power != is_.power and is_.power is not None and was.power is not None:
         if is_.power == "On":
-            events.append(Event("power_on", name, fields(("Status", "Powered On"))))
+            events.append(Event("power_on", name, make_fields(("Status", "Powered On"))))
         elif is_.power == "Off":
-            events.append(Event("power_off", name, fields(("Status", "Powered Off"))))
+            events.append(Event("power_off", name, make_fields(("Status", "Powered Off"))))
 
     # ---- cycle transitions -------------------------------------------
     started_now = False
@@ -274,14 +274,14 @@ def detect(
         and was.remote_control != is_.remote_control
     ):
         state = "Enabled" if is_.remote_control else "Disabled"
-        events.append(Event("remote_control", name, fields(("Remote Control", state))))
+        events.append(Event("remote_control", name, make_fields(("Remote Control", state))))
     if (
         was.child_lock is not None
         and is_.child_lock is not None
         and was.child_lock != is_.child_lock
     ):
         state = "On" if is_.child_lock else "Off"
-        events.append(Event("child_lock", name, fields(("Child Lock", state))))
+        events.append(Event("child_lock", name, make_fields(("Child Lock", state))))
 
     return events
 
@@ -313,7 +313,7 @@ def _settings(s: ApplianceState) -> list[tuple[str, str | None]]:
 def _started(
     s: ApplianceState, t: CycleTracker, now: float, tz: tzinfo | None
 ) -> tuple[Field, ...]:
-    return fields(
+    return make_fields(
         ("Status", "Started"),
         ("Programme", t.course_label(s.course)),
         *_settings(s),
@@ -327,7 +327,7 @@ def _scheduled(
 ) -> tuple[Field, ...]:
     # The WW80 reports remainingTime == delayEndTime while waiting, so the
     # cycle length (and hence the start time) is not knowable.
-    return fields(
+    return make_fields(
         ("Status", "Delayed Start Armed"),
         ("Programme", t.course_label(s.course)),
         *_settings(s),
@@ -339,7 +339,7 @@ def _scheduled(
 def _resumed(
     s: ApplianceState, t: CycleTracker, now: float, tz: tzinfo | None
 ) -> tuple[Field, ...]:
-    return fields(
+    return make_fields(
         ("Status", "Resumed"),
         ("Phase", _phase_label(s, t)),
         ("Time Remaining", fmt_duration(s.remaining_s) if s.remaining_s else None),
@@ -348,7 +348,7 @@ def _resumed(
 
 
 def _paused(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
-    return fields(
+    return make_fields(
         ("Status", "Paused"),
         ("Phase", _phase_label(s, t)),
         ("Time Remaining", fmt_duration(s.remaining_s) if s.remaining_s else None),
@@ -358,25 +358,24 @@ def _paused(s: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
 def _finished(
     s: ApplianceState, t: CycleTracker, now: float, *, while_offline: bool = False
 ) -> tuple[Field, ...]:
-    duration = None
-    length = None
+    duration = length = note = None
     if while_offline:
-        pass
+        note = "Finished while the bridge was disconnected"
     elif t.started_at is not None:
         duration = fmt_duration(now - t.started_at)
     elif t.initial_remaining_s:
         length = f"About {fmt_duration(t.initial_remaining_s)}"
-    return fields(
+    return make_fields(
         ("Status", "Complete"),
         ("Programme", t.course_label(t.course or s.course)),
         ("Duration", duration),
         ("Cycle Length", length),
-        ("Note", "Finished while the bridge was disconnected" if while_offline else None),
+        ("Note", note),
     )
 
 
 def _cancelled(was: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
-    return fields(
+    return make_fields(
         ("Status", "Delayed Start Cancelled" if t.scheduled else "Cancelled"),
         ("Programme", t.course_label(t.course or was.course)),
         ("Phase", None if t.scheduled else _phase_label(was, t)),
@@ -390,7 +389,7 @@ def _cancelled(was: ApplianceState, t: CycleTracker) -> tuple[Field, ...]:
 def _phase(
     s: ApplianceState, t: CycleTracker, now: float, tz: tzinfo | None
 ) -> tuple[Field, ...]:
-    return fields(
+    return make_fields(
         ("Status", _phase_label(s, t)),
         ("Time Remaining", fmt_duration(s.remaining_s) if s.remaining_s else None),
         ("Estimated Finish", _eta(s, now, tz)),

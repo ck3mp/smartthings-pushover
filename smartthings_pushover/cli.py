@@ -181,7 +181,7 @@ def _run(cfg: Config, log: logging.Logger) -> int:
         ApplianceBridge(app, cfg, sender, logger=logging.getLogger(app.kind))
         for app in cfg.appliances
     ]
-    heartbeat = Heartbeat(cfg.heartbeat_path or DEFAULT_HEARTBEAT_PATH)
+    heartbeat = Heartbeat(cfg.heartbeat_path or DEFAULT_HEARTBEAT_PATH, log)
     stop_requested = threading.Event()
 
     def _on_signal(signum: int, _frame: Any) -> None:

@@ -424,6 +424,9 @@ uv run mypy
 
 CI runs the same three commands plus `uv lock --check`, on the Python
 version in `.python-version`, then builds and publishes the image.
+Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md); add an entry
+under *Unreleased* with each change and move it under a version heading
+when tagging.
 Dependencies are locked in `uv.lock`; the Dockerfile installs from it with
 `--frozen`. Dependabot proposes updates for the lockfile, the SHA-pinned
 GitHub Actions and the digest-pinned base images.

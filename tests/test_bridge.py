@@ -184,6 +184,92 @@ def test_startup_event_once_when_enabled():
     assert [plain(m) for m in sender.submitted] == ["Status: Bridge Started\nAppliance State: Ready"]
 
 
+class RegReplySession(FakeSession):
+    """Answers every OBSERVE registration the moment all subscriptions are
+    in, in a caller-chosen order. The real reader thread does this within
+    ~100 ms, i.e. before seed() has finished its blocking GET."""
+
+    def __init__(self, links, *, reply_order=None, **kw):
+        super().__init__(links, **kw)
+        self.reply_order = reply_order or (lambda href: 0)
+        self.pending = []
+
+    def subscribe(self, path, **_):
+        href = "/" + "/".join(path)
+        self.pending.append(href)
+        self.subscribed.append(tuple(path))
+        if len(self.pending) == 9:  # every observe path is registered
+            cb = self.kw["on_observe_delivery"]
+            for h in sorted(self.pending, key=self.reply_order):
+                cb(SimpleNamespace(payload=cbor2.dumps(self.links.get(h, {})), href=h,
+                                   registration=True))
+
+
+def _run_until_connected(bridge):
+    t = threading.Thread(target=bridge.run_forever, daemon=True)
+    t.start()
+    deadline = time.monotonic() + 3
+    while bridge.connect_count == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert bridge.connect_count == 1
+    time.sleep(0.2)
+    return t
+
+
+@pytest.mark.parametrize("state_reply", ["first", "last"])
+def test_registration_replies_before_seed_are_silent(state_reply):
+    """Regression: registration replies landed between subscribe() and
+    seed() and were diffed against a partial baseline. With the state
+    resource answering last, a fresh start mid-cycle sent 'Started'."""
+    links = with_state(IDLE_LINKS, "Run", "Wash", "01:10:00")
+    links["/alarms/vs/0"] = {"x.com.samsung.da.items": [{"x.com.samsung.da.code": "ErrorCode_DC"}]}
+    rank = (lambda h: 0 if "operational" in h else 1) if state_reply == "first" else (
+        lambda h: 1 if "operational" in h else 0)
+    cfg = make_cfg()
+    sender = NullSender()
+    bridge = ApplianceBridge(
+        cfg.appliances[0], cfg, sender, logging.getLogger("test"), auth=object(),
+        session_factory=lambda h, p, **kw: RegReplySession(links, reply_order=rank, **kw))
+    t = _run_until_connected(bridge)
+    assert sender.submitted == []  # no 'Started', no re-announced standing alarm
+    assert bridge.tracker.course == "1C" and bridge.tracker.started_at is None
+    # ...and evaluation is live again afterwards.
+    done = with_state(IDLE_LINKS, "End", "Finish", "00:00:00")["/operational/state/vs/0"]
+    deliver(bridge, "/operational/state/vs/0", done)
+    assert messages(sender) == ["Status: Complete"]
+    bridge.request_stop()
+    t.join(3)
+
+
+def test_failed_seed_does_not_leave_evaluation_suppressed():
+    class BadOnce(RegReplySession):
+        calls = 0
+
+        def get(self, path, *a, **k):
+            BadOnce.calls += 1
+            if BadOnce.calls == 1:
+                raise OSError("timeout")
+            return super().get(path, *a, **k)
+
+    cfg = make_cfg()
+    sender = NullSender()
+    bridge = ApplianceBridge(
+        cfg.appliances[0], cfg, sender, logging.getLogger("test"), auth=object(),
+        session_factory=lambda h, p, **kw: BadOnce(dict(IDLE_LINKS), **kw))
+    t = threading.Thread(target=bridge.run_forever, daemon=True)
+    t.start()
+    deadline = time.monotonic() + 5
+    while bridge.connect_count < 2 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert bridge.connect_count == 2 and bridge.error_count == 1
+    time.sleep(0.2)
+    deliver(bridge, "/operational/state/vs/0",
+            with_state(IDLE_LINKS, "Run", "Wash")["/operational/state/vs/0"])
+    assert messages(sender) == ["Status: Started"]
+    bridge.request_stop()
+    t.join(3)
+
+
 # ---- dispatch --------------------------------------------------------------
 def test_alarm_is_forwarded_once_with_alarm_priority():
     bridge, sender, _ = make_bridge(dict(IDLE_LINKS))
@@ -227,17 +313,26 @@ def test_stale_sweep_does_not_flap_state():
                              sweep_settle_s=0.1)
     bridge.seed(FakeSession(running))
     stale_pause = with_state(IDLE_LINKS, "Pause", "Wash", "00:20:00")["/operational/state/vs/0"]
+    def settled():
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            with bridge._sweep_lock:
+                if bridge._sweep_timer is None:
+                    return
+            time.sleep(0.01)
+        raise AssertionError("sweep settle timer did not fire")
+
     bridge.cache.apply_rep("/operational/state/vs/0", stale_pause, source="sweep")
     assert sender.submitted == []  # not judged yet
     # The hot poll corrects it before the settle window closes.
     bridge.cache.apply_rep("/operational/state/vs/0", running["/operational/state/vs/0"],
                            source="poll")
-    time.sleep(0.3)
+    settled()
     assert sender.submitted == []
     # A sweep-only change that persists is still reported after settling.
     done = with_state(IDLE_LINKS, "End", "Finish", "00:00:00")["/operational/state/vs/0"]
     bridge.cache.apply_rep("/operational/state/vs/0", done, source="sweep")
-    time.sleep(0.3)
+    settled()
     assert messages(sender) == ["Status: Complete"]
 
 
@@ -274,7 +369,7 @@ def test_tracker_persists_and_restores(tmp_path):
 
 
 # ---- lifecycle -------------------------------------------------------------
-def test_stop_during_handshake_returns_promptly():
+def test_stop_during_handshake_returns_promptly_and_is_not_an_error():
     bridge, _, sessions = make_bridge(dict(IDLE_LINKS), hang_connect=True)
     t = threading.Thread(target=bridge.run_forever, daemon=True)
     t.start()
@@ -288,6 +383,7 @@ def test_stop_during_handshake_returns_promptly():
     assert not t.is_alive()
     assert time.monotonic() - t0 < 2
     assert bridge.session is None
+    assert bridge.error_count == 0  # a cancelled handshake is a clean stop
 
 
 def test_full_session_runs_workers_and_shuts_down_cleanly():

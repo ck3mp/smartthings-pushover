@@ -1,3 +1,4 @@
+import logging
 import os
 
 from smartthings_pushover.health import Heartbeat, Reachability
@@ -18,6 +19,18 @@ def test_reachability_offline_once_then_online():
     assert r.outage_s(2600) is None
     r.mark_down(3000)
     assert r.mark_up(3010) == (10, False)
+
+
+def test_heartbeat_unwritable_path_warns_once(tmp_path, caplog):
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    hb = Heartbeat(blocker / "beat", logging.getLogger("t"))
+    with caplog.at_level(logging.WARNING, logger="t"):
+        assert hb.touch() is False
+        assert hb.touch() is False
+    warnings = [r for r in caplog.records if "cannot write heartbeat" in r.message]
+    assert len(warnings) == 1
+    assert "HEARTBEAT_PATH" in warnings[0].message
 
 
 def test_heartbeat_touch_and_freshness(tmp_path):

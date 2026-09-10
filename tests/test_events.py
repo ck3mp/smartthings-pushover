@@ -5,9 +5,9 @@ from smartthings_pushover.events import (
     CycleTracker,
     Event,
     detect,
-    fields,
     fmt_clock,
     fmt_duration,
+    make_fields,
 )
 
 NAME = "Washer"
@@ -43,7 +43,7 @@ def f(ev):
 
 # ---- rendering ---------------------------------------------------------------
 def test_fields_drop_empty_values_and_render():
-    ev = Event("phase_changed", "W", fields(("Status", "Spinning"), ("Phase", None),
+    ev = Event("phase_changed", "W", make_fields(("Status", "Spinning"), ("Phase", None),
                                           ("Time Remaining", ""), ("Percentage Complete", "31%")))
     assert ev.fields == (("Status", "Spinning"), ("Percentage Complete", "31%"))
     assert ev.message == "Status: Spinning\nPercentage Complete: 31%"
@@ -51,7 +51,7 @@ def test_fields_drop_empty_values_and_render():
 
 
 def test_html_escapes_values():
-    ev = Event("alarm", "W", fields(("Programme", "Wool <Delicates> & Silk")))
+    ev = Event("alarm", "W", make_fields(("Programme", "Wool <Delicates> & Silk")))
     assert ev.html() == "<b>Programme:</b> Wool &lt;Delicates&gt; &amp; Silk"
 
 

@@ -12,6 +12,7 @@ touches it while every bridge thread is alive, so a wedged process
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from pathlib import Path
@@ -49,18 +50,27 @@ class Reachability:
 
 
 class Heartbeat:
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, logger: logging.Logger | None = None) -> None:
         self.path = Path(path)
-        self._failed = False
+        self.log = logger or logging.getLogger("main")
+        self._warned = False
 
     def touch(self) -> bool:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.touch()
             os.utime(self.path, None)
-        except OSError:
-            self._failed = True
+        except OSError as e:
+            if not self._warned:
+                self._warned = True
+                self.log.warning(
+                    "cannot write heartbeat %s: %s (the container HEALTHCHECK will fail; "
+                    "set HEARTBEAT_PATH to a writable location)",
+                    self.path,
+                    e.strerror or e,
+                )
             return False
+        self._warned = False
         return True
 
     @staticmethod
