@@ -1,11 +1,11 @@
 name: Build and publish image
 
+# Runs only for main: merges to main, v* release tags (cut from main), and
+# manual runs. Branches and pull requests are not built.
 on:
   push:
     branches: [main]
     tags: ["v*"]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 env:
@@ -53,8 +53,8 @@ jobs:
 
   publish:
     needs: test
-    # Don't push images from PR builds; the test job is the PR gate.
-    if: github.event_name != 'pull_request'
+    # A manual run on another branch still tests but never publishes.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
