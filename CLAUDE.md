@@ -65,10 +65,11 @@ SemVer: new event kinds or fields → minor; fixes → patch.
    links at the bottom (`[Unreleased]` → `vX.Y.Z...HEAD`, new
    `[X.Y.Z]` → `vPREV...vX.Y.Z`).
 4. Run the checks, commit as `Release X.Y.Z`, `git push -u origin
-   release-X.Y.Z`, open a PR (`gh` isn't installed locally; give the user
-   `https://github.com/ck3mp/smartthings-pushover/pull/new/release-X.Y.Z`).
-5. After the user merges: `git checkout main && git pull`, then tag the
-   merge commit and push only the tag:
+   release-X.Y.Z`, then `gh pr create` and `gh pr merge --merge
+   --delete-branch`. CI does not run on PRs, so the local checks are the
+   gate.
+5. `git checkout main && git pull`, then tag the merge commit and push
+   only the tag:
    `git tag -a vX.Y.Z -m "Release X.Y.Z" && git push origin vX.Y.Z`.
    CI checks the tag equals `uv version --short` and publishes the image
-   as `:X.Y.Z`, `:X.Y` and `:latest`.
+   as `:X.Y.Z`, `:X.Y` and `:latest`; confirm with `gh run list`.
