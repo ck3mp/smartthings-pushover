@@ -46,3 +46,29 @@ Captured so far:
 - `code=ErrorCode_DC, state=Created` → `alarm`, Code DC (WW80, 2026-09-10)
 - `code=ErrorCode, state=Deleted` → `alarm_cleared`, code from the
   previous alarm (DV80, 2026-10-05)
+
+## Versioning and releases
+
+The version lives only in `pyproject.toml` (`version = ...`). The app reads
+it at runtime via `importlib.metadata` (`--version`, User-Agent, the test
+and startup notifications); never hard-code it anywhere else. Bump it with
+`uv version`, which also updates `uv.lock`, so `uv lock --check` stays green.
+SemVer: new event kinds or fields → minor; fixes → patch.
+
+`main` is protected: every change goes through a branch and a pull request.
+
+1. `git checkout -b release-X.Y.Z` from an up-to-date `main` (release
+   commits can ride on the same branch as the changes they ship).
+2. `uv version --bump minor` (or `patch` / `major`, or `uv version X.Y.Z`).
+3. `CHANGELOG.md`: rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`,
+   add a fresh empty `## [Unreleased]` above it, and update the compare
+   links at the bottom (`[Unreleased]` → `vX.Y.Z...HEAD`, new
+   `[X.Y.Z]` → `vPREV...vX.Y.Z`).
+4. Run the checks, commit as `Release X.Y.Z`, `git push -u origin
+   release-X.Y.Z`, open a PR (`gh` isn't installed locally; give the user
+   `https://github.com/ck3mp/smartthings-pushover/pull/new/release-X.Y.Z`).
+5. After the user merges: `git checkout main && git pull`, then tag the
+   merge commit and push only the tag:
+   `git tag -a vX.Y.Z -m "Release X.Y.Z" && git push origin vX.Y.Z`.
+   CI checks the tag equals `uv version --short` and publishes the image
+   as `:X.Y.Z`, `:X.Y` and `:latest`.

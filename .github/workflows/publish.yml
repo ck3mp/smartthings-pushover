@@ -28,6 +28,17 @@ jobs:
       - name: Lockfile is current
         run: uv lock --check
 
+      # pyproject.toml is the one place the version lives; a v* tag must
+      # match it so the image tag and the version the app reports agree.
+      - name: Tag matches pyproject version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          want="$(uv version --short)"
+          if [ "${GITHUB_REF_NAME#v}" != "$want" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match pyproject.toml version $want"
+            exit 1
+          fi
+
       - name: Install
         run: uv sync --frozen
 

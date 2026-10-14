@@ -233,7 +233,7 @@ Estimated Finish: 16:47
 | `remote_control`  | Remote-control (SmartThings) toggle on the panel changed      | Remote Control: Enabled / Disabled |
 | `child_lock`      | Child lock changed                                           | Child Lock: On / Off |
 | `offline` / `online` | Appliance unreachable for `OFFLINE_AFTER_S` seconds / back | Status, Unreachable For |
-| `startup`         | One message per appliance when the bridge first connects      | Status, Appliance State |
+| `startup`         | One message per appliance when the bridge first connects      | Status, Appliance State, Version |
 
 `EVENTS=all` enables everything. Anything not in the list is still logged,
 just not sent.
@@ -430,6 +430,19 @@ version in `.python-version`, then builds and publishes the image.
 Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md); add an entry
 under *Unreleased* with each change and move it under a version heading
 when tagging.
+
+The version lives only in `pyproject.toml`; the app reads it at runtime
+(`--version`, the Pushover User-Agent, the test and startup notifications).
+To release:
+
+```sh
+uv version --bump patch     # or minor / major; updates pyproject.toml and uv.lock
+# move the CHANGELOG Unreleased entries under the new version heading
+git commit -am "Release $(uv version --short)"
+git tag "v$(uv version --short)" && git push origin main --tags
+```
+
+CI refuses a `v*` tag that doesn't match `pyproject.toml`.
 Dependencies are locked in `uv.lock`; the Dockerfile installs from it with
 `--frozen`. Dependabot proposes updates for the lockfile, the SHA-pinned
 GitHub Actions and the digest-pinned base images.

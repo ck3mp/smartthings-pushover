@@ -31,7 +31,7 @@ from smartthings_local.protocol.coap import fmt_code
 from smartthings_local.protocol.dtls_probe import probe_dtls_ports
 from smartthings_local.protocol.dtls_session import ConnectCancellation, DtlsCoapSession
 
-from . import appliance
+from . import __version__, appliance
 from .alarms import AlarmThrottle
 from .config import OCF_PORT_CANDIDATES, ApplianceConfig, Config
 from .events import CycleTracker, Event, detect, fmt_duration, make_fields
@@ -325,6 +325,7 @@ class ApplianceBridge:
                     make_fields(
                         ("Status", "Bridge Started"),
                         ("Appliance State", state.machine_state or "Unknown"),
+                        ("Version", __version__),
                     ),
                 )
             )
