@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import cbor2
 import pytest
 
+from smartthings_pushover import __version__
 from smartthings_pushover.bridge import ApplianceBridge
 from smartthings_pushover.config import ALL_EVENTS, ApplianceConfig, Config
 from smartthings_pushover.persistence import TrackerStore
@@ -181,7 +182,9 @@ def test_startup_event_once_when_enabled():
     bridge, sender, _ = make_bridge(dict(IDLE_LINKS), cfg)
     bridge.seed(FakeSession(IDLE_LINKS))
     bridge.seed(FakeSession(IDLE_LINKS))
-    assert [plain(m) for m in sender.submitted] == ["Status: Bridge Started\nAppliance State: Ready"]
+    assert [plain(m) for m in sender.submitted] == [
+        f"Status: Bridge Started\nAppliance State: Ready\nVersion: {__version__}"
+    ]
 
 
 class RegReplySession(FakeSession):

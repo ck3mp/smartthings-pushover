@@ -8,6 +8,8 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- The startup notification includes the bridge `Version`.
+- CI fails a `v*` tag that doesn't match the `pyproject.toml` version.
 - `alarm_cleared` event (on by default): when an error is cleared on the
   appliance, a normal-priority `Error Cleared` notification with the
   cleared `Code`, `Meaning` and `Cleared` time. Previously the firmware's
