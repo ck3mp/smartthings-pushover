@@ -257,15 +257,28 @@ def detect(
 
     # ---- alarms -------------------------------------------------------
     if was.alarms != is_.alarms and is_.alarms:
-        events.append(
-            Event(
-                "alarm",
-                f"{name}: Error",
-                alarms.alarm_fields(is_.alarms, tz),
-                dedupe_key=alarms.throttle_key(is_.alarms),
+        if alarms.is_cleared(is_.alarms):
+            # The firmware reports a clear as a `state=Deleted` item
+            # before the resource goes back to `{}`.
+            codes = alarms.cleared_codes(is_.alarms, was.alarms)
+            events.append(
+                Event(
+                    "alarm_cleared",
+                    f"{name}: Error Cleared",
+                    alarms.cleared_fields(is_.alarms, was.alarms, tz),
+                    dedupe_key="cleared:" + ",".join(codes),
+                )
             )
-        )
-        # Alarm cleared: silent. A "cleared" message adds little.
+        else:
+            events.append(
+                Event(
+                    "alarm",
+                    f"{name}: Error",
+                    alarms.alarm_fields(is_.alarms, tz),
+                    dedupe_key=alarms.throttle_key(is_.alarms),
+                )
+            )
+        # Back to `{}`: silent. The Deleted item above already said so.
 
     # ---- misc toggles ---------------------------------------------------
     if (

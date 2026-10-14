@@ -33,6 +33,7 @@ EventKind = Literal[
     "cycle_cancelled",
     "phase_changed",
     "alarm",
+    "alarm_cleared",
     "power_on",
     "power_off",
     "remote_control",
@@ -49,6 +50,7 @@ DEFAULT_EVENTS: tuple[EventKind, ...] = (
     "cycle_paused",
     "cycle_cancelled",
     "alarm",
+    "alarm_cleared",
 )
 
 # Standard OCF secure port plus the dynamic band Samsung's RT-OCF picks

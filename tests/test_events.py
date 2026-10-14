@@ -300,6 +300,23 @@ def test_alarm_real_door_open_shape():
     assert evs[0].dedupe_key == "DC"
 
 
+def test_alarm_real_cleared_shape():
+    """Door alarm raised, then cleared at the panel (DV80, 2026-10-05)."""
+    t = CycleTracker()
+    raised = (("items", "{id=0, description=Alarm, alarmType=Device, code=ErrorCode_DC, "
+                        "triggeredTime=2026-10-05T14:21:30, state=Created}"),)
+    cleared = (("items", "{id=0, description=Alarm, alarmType=Device, code=ErrorCode, "
+                         "triggeredTime=2026-10-05T14:22:09, state=Deleted}"),)
+    evs = detect(st(alarms=raised), st(alarms=cleared), t, NAME, tz=timezone(timedelta(hours=1)))
+    assert kinds(evs) == ["alarm_cleared"]
+    assert evs[0].title == "Washer: Error Cleared"
+    assert evs[0].fields == (
+        ("Status", "Cleared"), ("Code", "DC"), ("Meaning", "Door open or not latched"),
+        ("Cleared", "15:22"))
+    assert evs[0].dedupe_key == "cleared:DC"
+    assert detect(st(alarms=cleared), st(), t, NAME) == []
+
+
 # ---- toggles -----------------------------------------------------------------
 def test_power_and_toggles():
     t = CycleTracker()

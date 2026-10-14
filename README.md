@@ -117,7 +117,7 @@ On the Docker host:
    seeded within a few seconds:
 
    ```
-   INFO    main      smartthings-pushover -> Pushover; events=alarm,cycle_cancelled,cycle_finished,cycle_paused,cycle_scheduled,cycle_started
+   INFO    main      smartthings-pushover -> Pushover; events=alarm,alarm_cleared,cycle_cancelled,cycle_finished,cycle_paused,cycle_scheduled,cycle_started
    INFO    main      washer: Washing machine @ 192.168.1.50:auto
    INFO    main      dryer: Tumble dryer @ 192.168.1.51:auto
    INFO    washer    discovered DTLS port 49154
@@ -192,7 +192,7 @@ client is already talking to it). At least one must be enabled.
 ### Events
 
 `EVENTS` is a comma-separated list. Default:
-`cycle_scheduled,cycle_started,cycle_finished,cycle_paused,cycle_cancelled,alarm`
+`cycle_scheduled,cycle_started,cycle_finished,cycle_paused,cycle_cancelled,alarm,alarm_cleared`
 
 Every notification is titled with the appliance's name and consists of
 `Label: value` lines, labels in bold. Fields that don't apply are omitted.
@@ -228,6 +228,7 @@ Estimated Finish: 16:47
 | `cycle_cancelled` | Stopped or powered off before finishing (also a cancelled Delay End) | Status, Programme, Phase, Time Remaining |
 | `phase_changed`   | Wash → Rinse → Spin (washer), Drying → Cooling (dryer)        | Status, Time Remaining, Estimated Finish, Percentage Complete |
 | `alarm`           | The appliance raises an error                                | Status: Error, Code, Meaning (4C water supply, 5C drain, DC door, …), Raised (local time); raw Details when the code is unknown |
+| `alarm_cleared`   | An error is cleared on the appliance (normal priority)       | Status: Cleared, Code, Meaning, Cleared (local time) |
 | `power_on` / `power_off` | Panel power toggled                                   | Status |
 | `remote_control`  | Remote-control (SmartThings) toggle on the panel changed      | Remote Control: Enabled / Disabled |
 | `child_lock`      | Child lock changed                                           | Child Lock: On / Off |
@@ -242,6 +243,8 @@ Priorities resolve in this order: the event's own hint, then
 then the `QUIET_HOURS` cap (alarms are never capped). Alarm notifications
 are additionally rate-limited by `ALARM_REPEAT_S` so a flapping sensor
 cannot page you every second; suppressed alarms are still logged.
+`alarm_cleared` is an ordinary event: default priority, capped in quiet
+hours, and rate-limited separately from errors.
 
 ### Course names
 

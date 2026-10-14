@@ -96,6 +96,36 @@ def throttle_key(alarms: Iterable[tuple[str, str]]) -> str:
 UNKNOWN_CODE = "Not in the code table: check the panel"
 
 _TRIGGERED_RE = re.compile(r"\btriggeredTime=(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})")
+_STATE_RE = re.compile(r"\bstate=(\w+)")
+
+
+def is_cleared(alarms: Iterable[tuple[str, str]]) -> bool:
+    """True when every alarm item is `state=Deleted`. Captured on the DV80
+    when a door-open alarm was cleared at the panel:
+      items: {id=0, description=Alarm, alarmType=Device, code=ErrorCode,
+              triggeredTime=2026-10-05T14:22:09, state=Deleted}
+    The code loses its suffix, so the caller has to supply it from the
+    alarm that was standing before."""
+    states = [m.group(1) for _key, value in alarms for m in _STATE_RE.finditer(value)]
+    return bool(states) and all(s == "Deleted" for s in states)
+
+
+def _local_time(pairs: Iterable[tuple[str, str]], tz: tzinfo | None) -> str | None:
+    """The first `triggeredTime` (appliance UTC) as HH:MM in `tz`."""
+    for _key, value in pairs:
+        m = _TRIGGERED_RE.search(value)
+        if m:
+            stamp = datetime.strptime(f"{m.group(1)}T{m.group(2)}", "%Y-%m-%dT%H:%M:%S")
+            return stamp.replace(tzinfo=UTC).astimezone(tz).strftime("%H:%M")
+    return None
+
+
+def _code_fields(codes: Iterable[str]) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for code in codes:
+        out.append(("Code", code))
+        out.append(("Meaning", ALARM_CODES.get(code, UNKNOWN_CODE)))
+    return out
 
 
 def alarm_fields(
@@ -108,18 +138,37 @@ def alarm_fields(
     pairs = tuple(alarms)
     out: list[tuple[str, str]] = [("Status", "Error")]
     codes = codes_in(pairs)
-    for code in codes:
-        out.append(("Code", code))
-        out.append(("Meaning", ALARM_CODES.get(code, UNKNOWN_CODE)))
-    for _key, value in pairs:
-        m = _TRIGGERED_RE.search(value)
-        if m:
-            stamp = datetime.strptime(f"{m.group(1)}T{m.group(2)}", "%Y-%m-%dT%H:%M:%S")
-            local = stamp.replace(tzinfo=UTC).astimezone(tz)
-            out.append(("Raised", local.strftime("%H:%M")))
-            break
+    out.extend(_code_fields(codes))
+    raised = _local_time(pairs, tz)
+    if raised:
+        out.append(("Raised", raised))
     if not codes:
         out.append(("Details", "; ".join(f"{k}: {v}" for k, v in pairs) or "None"))
+    return tuple(out)
+
+
+def cleared_codes(
+    alarms: Iterable[tuple[str, str]], previous: Iterable[tuple[str, str]]
+) -> list[str]:
+    """Codes a cleared alarm refers to: its own if it still carries any,
+    otherwise those of the alarm standing before it."""
+    return codes_in(alarms) or codes_in(previous)
+
+
+def cleared_fields(
+    alarms: Iterable[tuple[str, str]],
+    previous: Iterable[tuple[str, str]] = (),
+    tz: tzinfo | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Notification fields for a cleared alarm (see `is_cleared`): Status,
+    Code / Meaning taken from `previous` when the cleared item has lost
+    its code, and the clear time."""
+    pairs = tuple(alarms)
+    out: list[tuple[str, str]] = [("Status", "Cleared")]
+    out.extend(_code_fields(cleared_codes(pairs, previous)))
+    cleared = _local_time(pairs, tz)
+    if cleared:
+        out.append(("Cleared", cleared))
     return tuple(out)
 
 

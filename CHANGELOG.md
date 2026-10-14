@@ -6,6 +6,13 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `alarm_cleared` event (on by default): when an error is cleared on the
+  appliance, a normal-priority `Error Cleared` notification with the
+  cleared `Code`, `Meaning` and `Cleared` time. Previously the firmware's
+  `state=Deleted` report went out as an `alarm` with raw Details.
+
 ## [1.0.1] - 2026-09-10
 
 ### Changed

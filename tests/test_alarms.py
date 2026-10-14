@@ -1,10 +1,23 @@
 from datetime import UTC, timedelta, timezone
 
-from smartthings_pushover.alarms import AlarmThrottle, alarm_fields, codes_in, throttle_key
+from smartthings_pushover.alarms import (
+    AlarmThrottle,
+    alarm_fields,
+    cleared_fields,
+    codes_in,
+    is_cleared,
+    throttle_key,
+)
 
 REAL_DOOR_ALARM = (
     ("items", "{id=0, description=Alarm, alarmType=Device, code=ErrorCode_DC, "
               "triggeredTime=2026-09-10T12:40:48, state=Created}"),
+)
+
+# Captured on the DV80 when the door-open alarm was cleared at the panel.
+REAL_CLEARED = (
+    ("items", "{id=0, description=Alarm, alarmType=Device, code=ErrorCode, "
+              "triggeredTime=2026-10-05T14:22:09, state=Deleted}"),
 )
 
 
@@ -57,3 +70,18 @@ def test_throttle_suppresses_repeats_and_storms():
 def test_throttle_disabled():
     t = AlarmThrottle(repeat_window_s=0)
     assert t.allow("A", 0)[0] and t.allow("A", 0)[0]
+
+
+def test_cleared_shape():
+    assert is_cleared(REAL_CLEARED)
+    assert not is_cleared(REAL_DOOR_ALARM)
+    assert not is_cleared((("count", "1"),))
+    assert codes_in(REAL_CLEARED) == []
+    assert cleared_fields(REAL_CLEARED, REAL_DOOR_ALARM, timezone(timedelta(hours=1))) == (
+        ("Status", "Cleared"),
+        ("Code", "DC"),
+        ("Meaning", "Door open or not latched"),
+        ("Cleared", "15:22"),
+    )
+    # Nothing standing before (e.g. joined mid-way): still no raw dump.
+    assert cleared_fields(REAL_CLEARED, (), UTC) == (("Status", "Cleared"), ("Cleared", "14:22"))

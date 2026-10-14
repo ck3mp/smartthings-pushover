@@ -114,6 +114,8 @@ class ApplianceBridge:
 
         self.reach = Reachability(cfg.offline_after_s)
         self.alarm_throttle = AlarmThrottle(cfg.alarm_repeat_s)
+        # Separate budget so a flapping door's clears cannot crowd out errors.
+        self.cleared_throttle = AlarmThrottle(cfg.alarm_repeat_s)
 
         # Counters for the periodic health line.
         self.connect_count = 0
@@ -392,7 +394,7 @@ class ApplianceBridge:
                     cur.remaining_hms(),
                 )
             self._persist_tracker()
-            if any(ev.kind == "alarm" for ev in events):
+            if any(ev.kind in ("alarm", "alarm_cleared") for ev in events):
                 raw = self.cache.get(appliance.ALARMS_HREF)
                 self.log.info("raw %s: %r", appliance.ALARMS_HREF, raw)
         for ev in events:
@@ -411,10 +413,11 @@ class ApplianceBridge:
         if ev.kind not in self.cfg.events:
             self.log.info("event %s (not forwarded): %s", ev.kind, flat)
             return
-        if ev.kind == "alarm":
-            ok, reason = self.alarm_throttle.allow(ev.dedupe_key or ev.message, time.time())
+        if ev.kind in ("alarm", "alarm_cleared"):
+            throttle = self.alarm_throttle if ev.kind == "alarm" else self.cleared_throttle
+            ok, reason = throttle.allow(ev.dedupe_key or ev.message, time.time())
             if not ok:
-                self.log.info("event alarm suppressed (%s): %s", reason, flat)
+                self.log.info("event %s suppressed (%s): %s", ev.kind, reason, flat)
                 return
         priority = self.cfg.priority_for(ev.kind, ev.priority, datetime.now())
         sound = ev.sound
